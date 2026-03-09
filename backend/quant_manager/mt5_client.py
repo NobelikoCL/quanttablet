@@ -14,6 +14,7 @@ class MT5Engine:
     _initial_deposit_cache = None
     _current_terminal_path = None  # Path de la terminal actualmente conectada
     _lock = threading.Lock()  # Lock para switch seguro entre terminales
+    _last_mt5_error_log_ts = 0.0  # Throttle: evita flood de logs cuando MT5 no responde
 
     @staticmethod
     def initialize(path=None):
@@ -85,11 +86,10 @@ class MT5Engine:
             try:
                 close_old_connections()
                 settings = RiskSettings.get_settings()
-                
+
                 if settings.is_profit_monitor_active or settings.is_stop_loss_monitor_active:
-                    # Log de latido para confirmar que el monitor está activo
                     logger.debug(f"[Risk Monitor] Activo — TP: {settings.profit_target_percent}% | SL: {settings.global_stop_loss_percent}%")
-                    
+
                     # Chequeo de Profit
                     if settings.is_profit_monitor_active:
                         result_tp = MT5Engine.monitor_account_performance('profit', float(settings.profit_target_percent))
@@ -97,16 +97,31 @@ class MT5Engine:
                             logger.warning(f"[Risk Monitor] ¡META DE PROFIT ALCANZADA! {result_tp.get('message')}")
                             settings.is_profit_monitor_active = False
                             settings.save()
-                    
+                        elif result_tp.get("closed") == -1:
+                            # MT5 no responde — throttle: loguear máximo 1 vez por minuto
+                            now_ts = time.time()
+                            if now_ts - MT5Engine._last_mt5_error_log_ts >= 60:
+                                logger.warning("[Risk Monitor] MT5 no responde. Reintentando en próximo ciclo. (Este mensaje se suprime 60s)")
+                                MT5Engine._last_mt5_error_log_ts = now_ts
+                            time.sleep(2)
+                            continue
+
                     # Chequeo de Stop Loss
                     if settings.is_stop_loss_monitor_active:
                         result_sl = MT5Engine.monitor_account_performance('loss', float(settings.global_stop_loss_percent))
                         if result_sl.get("triggered"):
                             logger.error(f"[Risk Monitor] ¡STOP LOSS GLOBAL ALCANZADO! {result_sl.get('message')}")
                             settings.is_stop_loss_monitor_active = False
-                            settings.is_trading_active = False # Botón de pánico automático
+                            settings.is_trading_active = False
                             settings.save()
-                
+                        elif result_sl.get("closed") == -1:
+                            now_ts = time.time()
+                            if now_ts - MT5Engine._last_mt5_error_log_ts >= 60:
+                                logger.warning("[Risk Monitor] MT5 no responde (SL check). (Este mensaje se suprime 60s)")
+                                MT5Engine._last_mt5_error_log_ts = now_ts
+                            time.sleep(2)
+                            continue
+
                 # --- LÓGICA: Monitor de Símbolos ---
                 from .models import SymbolProfitTarget
                 from django.db.models import Q
@@ -585,7 +600,7 @@ class MT5Engine:
             
             account_info = mt5.account_info()
             if not account_info:
-                logger.error(f"[{mode.upper()} Monitor] No se pudo obtener Account Info.")
+                # No loguear aquí — el caller (_risk_monitor_loop) lo hace con throttle para evitar flood
                 return {"closed": -1, "message": "MT5 no responde"}
                 
             balance = account_info.balance
