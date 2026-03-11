@@ -65,6 +65,12 @@ class MarketWatchScanner:
                 if not ema_tfs:
                     ema_tfs = ["M15", "M30", "H1", "H4"]
 
+                stoch_tfs = [tf.strip() for tf in getattr(settings, 'stoch_timeframes', 'M15,M30,H1,H4,D1').split(',') if tf.strip()]
+                if not stoch_tfs:
+                    stoch_tfs = ["M15", "M30", "H1", "H4", "D1"]
+
+                breakout_tf = getattr(settings, 'breakout_timeframe', 'M15').strip().upper() or 'M15'
+
                 # Monitoreo de Memoria
                 mem_mb = 0
                 if MarketWatchScanner._process:
@@ -74,15 +80,17 @@ class MarketWatchScanner:
                         logger.warning(f"Error leyendo memoria: {e}")
 
                 from concurrent.futures import ThreadPoolExecutor
-                max_workers = os.cpu_count() or 4
-                
+                # Limitar hilos a 4 para reducir contención en SQLite.
+                # Con ALL + acciones son >200 símbolos: demasiados escritores simultáneos = "database is locked".
+                max_workers = min(4, os.cpu_count() or 4)
+
                 logger.debug(f"[INICIO] CICLO ({len(symbols)} activos) | Hilos: {max_workers} | RAM: {mem_mb:.2f} MB")
 
                 def _safe_analyze(symbol_name):
                     try:
                         # Cada hilo de Django necesita cerrar conexiones viejas para evitar "Database is locked" o leaks
                         close_old_connections()
-                        MarketWatchScanner._analyze_symbol(symbol_name, settings, fractal_tfs, ema_tfs)
+                        MarketWatchScanner._analyze_symbol(symbol_name, settings, fractal_tfs, ema_tfs, stoch_tfs, breakout_tf)
                     except Exception as e:
                         logger.error(f"Error analizando {symbol_name} en hilo: {str(e)}")
 
@@ -107,51 +115,66 @@ class MarketWatchScanner:
     #  ANÁLISIS DE UN SÍMBOLO
     # ──────────────────────────────────────────────────────────────
     @staticmethod
-    def _analyze_symbol(symbol, settings, fractal_tfs, ema_tfs):
+    def _analyze_symbol(symbol, settings, fractal_tfs, ema_tfs, stoch_tfs=None, breakout_tf="M15"):
         signal, _ = MarketWatchSignal.objects.get_or_create(symbol=symbol)
 
         tick = mt5.symbol_info_tick(symbol)
         if not tick:
             return
-            
+
+        sym_info = mt5.symbol_info(symbol)
+
         signal.status = 'SCANNING'
         signal.message = f"Escaneando {symbol}..."
-        
+
         # Reset de señales
         signal.fractal_type = None
         signal.fractal_price = None
         signal.fractal_time = None
         signal.matched_tfs = []
-        
+
         signal.ema_signal = None
         signal.ema_matched_tfs = []
         signal.ema_200_h1_status = None
         signal.stoch_status = None
         signal.stoch_data = {}
         signal.breakout_m15 = 'RANGE'
-        
-        signal.tick_volume = tick.volume
-        # Calcular Volumen MA (usando los últimos 20 periodos de M5 como referencia de liquidez inmediata)
-        df_vol = MarketWatchScanner._get_candles(symbol, "M5", 21)
-        if df_vol is not None and len(df_vol) > 1:
-            signal.volume_ma = float(df_vol['tick_volume'].tail(20).mean())
-            if signal.tick_volume > signal.volume_ma * 2.0: # Hardcoded 2x for log prominence
-                logger.info(f"[Scanner] VOLUMEN INUSUAL en {symbol}: {signal.tick_volume} (Media: {int(signal.volume_ma)})")
+
+        # Precio actual y decimales del símbolo (funciona con forex, índices y acciones)
+        signal.current_bid = Decimal(str(tick.bid))
+        if sym_info:
+            signal.symbol_digits = sym_info.digits
+
+        # Volumen: usar tick_volume de la vela M5 actual (acumulado en el período corriente).
+        # NO usar tick.volume de symbol_info_tick — ese es el volumen de UN solo tick (valor 1-5),
+        # incomparable con la media de velas que acumula miles de ticks por período.
+        df_vol = MarketWatchScanner._get_candles(symbol, "M5", 22)  # 20 cerradas + 1 actual + margen
+        if df_vol is not None and len(df_vol) >= 2:
+            # iloc[-1] = vela actual (formándose), iloc[-21:-1] = últimas 20 velas cerradas
+            current_vol = int(df_vol['tick_volume'].iloc[-1])
+            ma_vol = float(df_vol['tick_volume'].iloc[-21:-1].mean()) if len(df_vol) >= 21 else float(df_vol['tick_volume'].iloc[:-1].mean())
+            signal.tick_volume = current_vol
+            signal.volume_ma = ma_vol
+            if ma_vol > 0 and current_vol > ma_vol * 2.0:
+                logger.debug(f"[Scanner] VOLUMEN INUSUAL en {symbol}: {current_vol} (Media: {int(ma_vol)})")
+        else:
+            signal.tick_volume = 0
+            signal.volume_ma = 0.0
 
         # --- Análisis de contexto EMA 200 en H1 ---
+        # Se usan 600 velas para que el EWM tenga suficiente warmup:
+        # con span=200 y 600 bars, el peso de la 1ª vela cae a <0.5% (vs ~37% con solo 201 bars)
         try:
-            df_h1 = MarketWatchScanner._get_candles(symbol, "H1", 201)
-            if df_h1 is not None and len(df_h1) >= 200:
+            df_h1 = MarketWatchScanner._get_candles(symbol, "H1", 600)
+            if df_h1 is not None and len(df_h1) >= 400:
                 ema200 = df_h1['close'].ewm(span=200, adjust=False).mean().iloc[-1]
                 current_price = tick.bid
                 signal.ema_200_h1_status = 'ABOVE_EMA200' if current_price > ema200 else 'BELOW_EMA200'
         except Exception as e:
             logger.error(f"Error calculando EMA 200 H1 para {symbol}: {e}")
-
-        # Guardar cambios básicos primero (volumen y contexto)
-        signal.save()
         # --- Análisis Estocástico (14, 3, 3) ---
-        stoch_tfs = ["M15", "M30", "H1", "H4", "D1"]
+        if not stoch_tfs:
+            stoch_tfs = ["M15", "M30", "H1", "H4", "D1"]
         stoch_results = {}
         stoch_summary = []
         
@@ -195,27 +218,26 @@ class MarketWatchScanner:
         signal.stoch_data = stoch_results
         signal.stoch_status = ",".join(stoch_summary) if stoch_summary else "NEUTRAL"
 
-        # --- Detección de Rupturas M15 (Canal Donchian 20) ---
+        # --- Detección de Rupturas Donchian (TF configurable) ---
         try:
-            df_m15 = MarketWatchScanner._get_candles(symbol, "M15", 25)
-            if df_m15 is not None and len(df_m15) >= 21:
-                # Calculamos el rango de las últimas 20 velas (sin contar la actual)
-                range_df = df_m15.iloc[-21:-1]
+            df_bo = MarketWatchScanner._get_candles(symbol, breakout_tf, 25)
+            if df_bo is not None and len(df_bo) >= 21:
+                # Calculamos el rango de las últimas 20 velas cerradas (sin contar la actual)
+                range_df = df_bo.iloc[-21:-1]
                 upper_bound = range_df['high'].max()
                 lower_bound = range_df['low'].min()
-                
-                current_price = tick.bid # O close de la actual
+
+                current_price = tick.bid
                 if current_price > upper_bound:
                     signal.breakout_m15 = 'BULLISH_BREAKOUT'
+                    logger.warning(f"[BREAKOUT] {symbol} | ALCISTA {breakout_tf} | Precio: {current_price:.5f} > Techo: {upper_bound:.5f}")
                 elif current_price < lower_bound:
                     signal.breakout_m15 = 'BEARISH_BREAKOUT'
+                    logger.warning(f"[BREAKOUT] {symbol} | BAJISTA {breakout_tf} | Precio: {current_price:.5f} < Suelo: {lower_bound:.5f}")
                 else:
                     signal.breakout_m15 = 'RANGE'
         except Exception as e:
-            logger.error(f"Error detectando ruptura M15 para {symbol}: {e}")
-
-        # Guardar cambios básicos primero (volumen, contexto, stoch, breakout)
-        signal.save()
+            logger.error(f"Error detectando ruptura {breakout_tf} para {symbol}: {e}")
 
         # Determinar TFs que necesitan escaneo (combinar ambos para no solicitar datos redundantes si coinciden)
         all_tfs = set()
@@ -238,7 +260,8 @@ class MarketWatchScanner:
                 
             # Optimización Experta: Solo descargar lo necesario
             needs_ema = getattr(settings, 'is_ema_active', False) and tf in ema_tfs
-            needed_candles = 500 if needs_ema else 20
+            # 800 velas: necesarias para warmup correcto de EMA 200 (peso 1ª vela < 0.1%)
+            needed_candles = 800 if needs_ema else 20
             
             logger.debug(f"[Scanner] {symbol} @ {tf} -> Fetching {needed_candles} candles.")
             df = MarketWatchScanner._get_candles(symbol, tf, needed_candles)

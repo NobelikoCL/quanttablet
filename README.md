@@ -1,284 +1,193 @@
-# QuantTablet — Quantitative Trading Dashboard
+# QuantTablet — Panel de Trading Cuantitativo
 
-> Full-stack trading operations platform with real-time MetaTrader 5 integration, built for active traders on Windows.
-
----
-
-## Overview
-
-QuantTablet is a local web dashboard that connects directly to one or more **MetaTrader 5** terminals running on the same machine. It provides real-time account monitoring, automated risk management, a multi-timeframe market scanner, and a unified notification center — all accessible from any device on your local network (PC, tablet, phone).
+> Plataforma completa de operaciones de trading con integración en tiempo real con MetaTrader 5, diseñada para traders activos en Windows.
 
 ---
 
-## Screenshots
+## Descripción General
 
-> Dashboard · Market Watch · Economic Calendar · History · Notification Center
-
----
-
-## Features
-
-### Trading & Risk Management
-- **Live account data** — balance, equity, margin, floating P&L updated every 3 seconds
-- **Global profit monitor** — automatically closes all positions when a configurable % target is reached
-- **Global stop loss monitor** — automatically closes all positions and disables trading when a configurable % drawdown is reached
-- **Proactive drawdown alerts** — toast warnings at 50%, 75% and 90% of the configured drawdown limit before it triggers
-- **Breakeven automation** — set SL to entry price on all winning positions globally or per symbol
-- **Per-symbol targets** — individual profit and loss limits in USD with auto-close per symbol
-- **Emergency close** — single button to liquidate all open positions instantly
-- **Close by direction** — close only BUY or SELL side of a symbol independently
-
-### Market Scanner
-- **Fractal detection** — Bill Williams fractals confirmed across configurable timeframes (M5 to D1)
-- **EMA confluence** — detects alignment of multiple EMAs across timeframes (M15 to H4)
-- **Price action** — breakout detection on M15
-- **Stochastic signals** — bullish/bearish cross, overbought/oversold detection
-- **Volume filter** — flags symbols with abnormal volume vs moving average
-- **Multi-threaded** — scans all visible MT5 symbols in parallel using ThreadPoolExecutor
-- **Configurable** — enable/disable each signal type, set timeframes, filter symbols
-
-### Notification Center
-- **Unified panel** — fractals and macro news in one place, sorted by time
-- **Read/unread tracking** — blue dot on unread items, fades when read
-- **Mark all as read** — single button to clear unread count without deleting history
-- **Dismiss individual** — X button per item; dismissed fractals won't re-appear from the scanner
-- **Filter tabs** — All / Unread / Fractals / Macro
-- **Toast popups** — real-time alerts for new fractals and macro news with sound
-
-### Economic Calendar
-- **TradingView widget** — live macro events with full details
-- **Impact filter** — toggle High / Medium / Low impact events
-- **Currency filter** — show/hide events by currency (USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD, CNY)
-- **Countdown** — live timer to the next high-impact macro event using ForexFactory data
-
-### Performance Analytics (History tab)
-- **Win Rate, Profit Factor, Net Profit, Avg Win/Loss**
-- **Sharpe Ratio** — calculated from the distribution of closed trade returns
-- **Max Drawdown** — calculated from cumulative P&L series (USD and %)
-- **Cumulative P&L chart** — area chart showing equity curve of closed trades
-- **CSV export** — download any filtered period as a spreadsheet
-- **Period selector** — Today / Week / Month / Year / All time
-
-### Multi-Account (Copy Trading)
-- Register multiple MT5 terminals (different brokers)
-- View positions across all terminals simultaneously
-- Copy or close trades from one terminal to another
-- Symbol mapping between brokers (e.g. `GOLD` → `XAUUSD`)
-- Switch active terminal at runtime without restarting
-
-### UX & Interface
-- **Glassmorphism dark theme** — optimized for low-light trading environments
-- **Responsive** — works on mobile, tablet, desktop and 2K monitors
-- **Skeleton loaders** — smooth loading states instead of blank screens
-- **Offline detection** — shows time since last connection, exponential backoff reconnect (5s → 10s → 20s → 40s → 60s)
-- **Market session timer** — countdown to London, New York, Tokyo and Sydney sessions
-- **LAN access** — access from any device on the local network via auto-detected IP
+QuantTablet es un dashboard web local que se conecta directamente a uno o más terminales de **MetaTrader 5** que se ejecutan en la misma máquina. Proporciona monitoreo de cuenta en tiempo real, gestión de riesgos automatizada, un escáner de mercado multi-temporal y un centro de notificaciones unificado, todo accesible desde cualquier dispositivo en su red local (PC, tablet, teléfono).
 
 ---
 
-## Tech Stack
+## Capturas de Pantalla
 
-| Layer | Technology |
+> Dashboard · Market Watch · Calendario Económico · Historial · Centro de Notificaciones
+
+---
+
+## Características
+
+### Trading y Gestión de Riesgos
+- **Datos de cuenta en vivo**: Balance, equidad, margen y P&L flotante actualizados cada 3 segundos.
+- **Monitor de ganancias global**: Cierra automáticamente todas las posiciones cuando se alcanza un objetivo de % configurable.
+- **Monitor de stop loss global**: Cierra automáticamente todas las posiciones y deshabilita el trading cuando se alcanza un drawdown de % configurable.
+- **Alertas proactivas de drawdown**: Avisos visuales al 50%, 75% y 90% del límite de drawdown configurado.
+- **Automatización de Breakeven**: Establece el SL al precio de entrada en todas las posiciones ganadoras de forma global o por símbolo.
+- **Objetivos por símbolo**: Límites individuales de ganancias y pérdidas en USD con cierre automático por símbolo.
+- **Cierre de emergencia**: Botón único para liquidar todas las posiciones abiertas instantáneamente.
+- **Cierre por dirección**: Cierra solo el lado BUY o SELL de un símbolo de forma independiente.
+
+### Escáner de Mercado
+- **Detección de Fractales**: Fractales de Bill Williams confirmados en marcos temporales configurables (M5 a D1).
+- **Confluencia de EMA**: Detecta la alineación de múltiples EMAs en varios marcos temporales (M15 a H4).
+- **Acción del Precio**: Detección de rupturas (breakouts) en M15.
+- **Señales Estocásticas**: Cruce alcista/bajista, detección de sobrecompra/sobreventa.
+- **Filtro de Volumen**: Identifica símbolos con volumen anormal en comparación con su media móvil.
+- **Multihilo**: Escanea todos los símbolos visibles en MT5 en paralelo utilizando ThreadPoolExecutor.
+- **Configurable**: Habilita/deshabilita cada tipo de señal, establece marcos temporales y filtra símbolos.
+
+### Centro de Notificaciones
+- **Panel unificado**: Fractales y noticias macro en un solo lugar, ordenados por tiempo.
+- **Seguimiento de leídos**: Punto azul en elementos no leídos que desaparece al leer.
+- **Marcar todo como leído**: Botón único para limpiar el contador de no leídos sin borrar el historial.
+- **Descartar individuales**: Botón X por elemento; los fractales descartados no volverán a aparecer del escáner.
+- **Filtros por pestañas**: Todo / No leídos / Fractales / Macro.
+- **Alertas emergentes (Toasts)**: Alertas en tiempo real para nuevos fractales y noticias macro con sonido.
+
+### Calendario Económico
+- **Widget de TradingView**: Eventos macro en vivo con detalles completos.
+- **Filtro de impacto**: Alterna entre eventos de impacto Alto / Medio / Bajo.
+- **Filtro de moneda**: Muestra/oculta eventos por moneda (USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD, CNY).
+- **Cuenta regresiva**: Temporizador en vivo para el próximo evento macro de alto impacto utilizando datos de ForexFactory.
+
+### Análisis de Rendimiento (Pestaña Historial)
+- **Win Rate, Profit Factor, Net Profit, Avg Win/Loss**.
+- **Sharpe Ratio**: Calculado a partir de la distribución de los retornos de las operaciones cerradas.
+- **Drawdown Máximo**: Calculado a partir de la serie de P&L acumulado (USD y %).
+- **Gráfico de P&L acumulado**: Gráfico de área que muestra la curva de equidad de las operaciones cerradas.
+- **Exportación CSV**: Descarga cualquier periodo filtrado como una hoja de cálculo.
+- **Selector de periodo**: Hoy / Semana / Mes / Año / Todo el tiempo.
+
+### Multi-Cuenta (Copy Trading)
+- Registra múltiples terminales MT5 (diferentes brokers).
+- Visualiza posiciones en todos los terminales simultáneamente.
+- Copia o cierra operaciones de un terminal a otro.
+- Mapeo de símbolos entre brokers (ej. `GOLD` → `XAUUSD`).
+- Cambia el terminal activo en tiempo de ejecución sin reiniciar.
+
+### UX e Interfaz
+- **Tema oscuro Glassmorphism**: Optimizado para entornos de trading con poca luz.
+- **Responsivo**: Funciona en móviles, tablets, computadoras de escritorio y monitores 2K.
+- **Skeleton loaders**: Transiciones de carga suaves en lugar de pantallas en blanco.
+- **Detección de desconexión**: Muestra el tiempo desde la última conexión, con reconexión mediante retroceso exponencial (5s → 10s → 20s → 40s → 60s).
+- **Temporizador de sesiones**: Cuenta regresiva para las sesiones de Londres, Nueva York, Tokio y Sídney.
+- **Acceso LAN**: Accede desde cualquier dispositivo en la red local mediante la IP autodetectada.
+
+---
+
+## Pila Tecnológica
+
+| Capa | Tecnología |
 |-------|-----------|
-| Backend framework | Django 6.0 + Django REST Framework 3.16 |
-| MT5 integration | MetaTrader5 Python library 5.0.5640 |
-| Data processing | NumPy 2.4 + Pandas 3.0 |
-| Database | SQLite3 (local, no setup required) |
-| Authentication | API Key header (`X-API-KEY`) |
-| Frontend framework | React 19 + Vite 7 |
-| Styling | TailwindCSS 4 |
-| Charts | Recharts 3 |
-| Icons | Lucide React |
-| HTTP client | Axios |
-| Notifications | react-hot-toast |
+| Framework Backend | Django 6.0 + Django REST Framework 3.16 |
+| Integración MT5 | Librería Python MetaTrader5 5.0.5640 |
+| Procesamiento de Datos | NumPy 2.4 + Pandas 3.0 |
+| Base de Datos | SQLite3 (local, no requiere configuración) |
+| Autenticación | Encabezado de API Key (`X-API-KEY`) |
+| Framework Frontend | React 19 + Vite 7 |
+| Estilos | TailwindCSS 4 |
+| Gráficos | Recharts 3 |
+| Iconos | Lucide React |
+| Cliente HTTP | Axios |
+| Notificaciones | react-hot-toast |
 
 ---
 
-## Project Structure
+## Estructura del Proyecto
 
 ```
 quanttablet/
 ├── backend/
-│   ├── config/                  # Django settings, URLs, ASGI/WSGI
+│   ├── config/                  # Ajustes de Django, URLs, ASGI/WSGI
 │   ├── quant_manager/
 │   │   ├── models.py            # RiskSettings, EquitySnapshot, Signals, Terminals
-│   │   ├── views.py             # 28 REST API endpoints
-│   │   ├── mt5_client.py        # MT5Engine — connection, positions, risk monitor
-│   │   ├── scanner.py           # MarketWatchScanner — multi-threaded signal detection
-│   │   ├── price_action.py      # Fractal, EMA, Stochastic analysis logic
-│   │   ├── serializers.py       # DRF serializers
-│   │   ├── permissions.py       # API Key authentication
-│   │   ├── tests.py             # 20 backend tests
-│   │   └── services/            # ForexFactory + Alpha Vantage integrations
+│   │   ├── views.py             # 28 endpoints de la API REST
+│   │   ├── mt5_client.py        # MT5Engine — conexión, posiciones, monitor de riesgo
+│   │   ├── scanner.py           # MarketWatchScanner — detección multihilo de señales
+│   │   ├── price_action.py      # Lógica de fractales, EMA y Estocástico
+│   │   ├── serializers.py       # Serializadores DRF
+│   │   ├── permissions.py       # Autenticación por API Key
+│   │   ├── tests.py             # 20 pruebas de backend
+│   │   └── services/            # Integraciones con ForexFactory + Alpha Vantage
 │   └── requirements.txt
 │
 ├── frontend/
 │   └── src/
-│       ├── App.jsx              # Root — routing, notification center, polling
-│       ├── api.js               # Auto-detects backend IP for LAN access
+│       ├── App.jsx              # Raíz — rutas, centro de notificaciones, sondeo
+│       ├── api.js               # Autodetecta la IP del backend para acceso LAN
 │       └── components/
-│           ├── DashboardTab.jsx         # Positions, equity chart, risk actions
-│           ├── MarketWatchTab.jsx       # Scanner signals table + settings
-│           ├── HistoryTab.jsx           # Trade history, P&L chart, analytics
-│           ├── EconomicCalendarTab.jsx  # Calendar widget + filters + countdown
-│           ├── AccountsTab.jsx          # Multi-terminal copy trading
-│           ├── RiskSettingsForm.jsx     # Global risk configuration
-│           ├── MarketSessionTimer.jsx   # Session countdown popup
-│           ├── MetricsPanel.jsx         # Top metrics cards
-│           └── SkeletonLoader.jsx       # Loading state components
+│           ├── DashboardTab.jsx         # Posiciones, gráfico de equidad, acciones de riesgo
+│           ├── MarketWatchTab.jsx       # Tabla de señales del escáner + ajustes
+│           ├── HistoryTab.jsx           # Historial, gráfico P&L, analíticas
+│           ├── EconomicCalendarTab.jsx  # Widget de calendario + filtros + cuenta regresiva
+│           ├── AccountsTab.jsx          # Copy trading multi-terminal
+│           ├── RiskSettingsForm.jsx     # Configuración de riesgo global
+│           ├── MarketSessionTimer.jsx   # Emergente de cuenta regresiva de sesiones
+│           ├── MetricsPanel.jsx         # Tarjetas de métricas superiores
+│           └── SkeletonLoader.jsx       # Componentes de estado de carga
 │
-├── install.bat      # One-click setup (Python venv + pip + npm install)
-├── start.bat        # One-click launch (Django + React dev server)
-└── .gitignore       # Excludes venv, node_modules, db, logs, .env
+├── install.bat      # Instalación con un clic (Python venv + pip + npm install)
+├── start.bat        # Inicio con un clic (Django + React dev server)
+└── .gitignore       # Excluye venv, node_modules, db, logs, .env
 ```
 
 ---
 
-## API Endpoints
+## Requisitos
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/health/` | System status — no auth required |
-| GET | `/api/account/` | Live account info |
-| GET | `/api/dashboard-data/` | Account + positions + settings combined |
-| GET | `/api/positions/` | Open positions grouped by symbol |
-| GET/PUT | `/api/settings/` | Risk settings |
-| GET | `/api/equity-history/` | Equity snapshots (M1 / M5 / H1) |
-| GET | `/api/history/` | Closed trade history by period |
-| GET | `/api/history/metrics/` | Win rate, Sharpe, Drawdown, Profit Factor |
-| POST | `/api/actions/close_all/` | Emergency close all positions |
-| POST | `/api/actions/breakeven/` | Set breakeven on all winning positions |
-| POST | `/api/actions/breakeven_symbol/` | Breakeven for a specific symbol |
-| POST | `/api/actions/close_symbol/` | Close all positions of a symbol |
-| POST | `/api/actions/close_direction/` | Close BUY or SELL side of a symbol |
-| POST | `/api/actions/close_winning_symbol/` | Close only profitable positions of a symbol |
-| POST | `/api/actions/close_profit/` | Close positions above a profit % threshold |
-| GET/POST | `/api/symbol-targets/` | Per-symbol TP/SL targets |
-| GET | `/api/market-watch/signals/` | Detected signals (fractals, EMAs, scanning) |
-| GET/PUT | `/api/market-watch/settings/` | Scanner configuration |
-| GET | `/api/session-assets/` | Current prices for session timer symbols |
-| GET | `/api/economic-calendar/` | Earnings calendar via Alpha Vantage |
-| GET | `/api/macro-news/` | High/medium impact news via ForexFactory |
-| GET/POST | `/api/terminals/` | MT5 terminal list |
-| PUT/DELETE/POST | `/api/terminals/<id>/` | Edit / delete / activate terminal |
-| GET | `/api/terminals/positions/` | Positions across all terminals |
-| GET | `/api/terminals/<id>/symbols/` | Available symbols on a terminal |
-| POST | `/api/terminals/copy-trade/` | Copy or close trade on a terminal |
-| GET/POST/DELETE | `/api/terminals/symbol-mappings/` | Symbol mapping between brokers |
-
----
-
-## Requirements
-
-- **Windows 10/11** (MetaTrader 5 is Windows-only)
-- **MetaTrader 5** terminal installed and logged in
+- **Windows 10/11** (MetaTrader 5 es exclusivo de Windows)
+- **Terminal MetaTrader 5** instalado y con sesión iniciada
 - **Python 3.11+**
 - **Node.js 18+**
 
 ---
 
-## Installation
+## Instalación
 
-**1. Clone the repository**
+**1. Clonar el repositorio**
 ```bash
 git clone https://github.com/NobelikoCL/quanttablet.git
 cd quanttablet
 ```
 
-**2. Run the installer** (creates Python venv + installs all dependencies)
+**2. Ejecutar el instalador** (crea el venv de Python e instala todas las dependencias)
 ```
 install.bat
 ```
 
-**3. Launch the dashboard**
+**3. Iniciar el panel**
 ```
 start.bat
 ```
 
-The launcher will:
-- Auto-detect your local IP
-- Create `backend/.env` if it doesn't exist
-- Run Django migrations
-- Start Django on `0.0.0.0:8000`
-- Start React dev server on `0.0.0.0:5173`
+El lanzador:
+- Autodetectará su IP local.
+- Creará `backend/.env` si no existe.
+- Ejecutará las migraciones de Django.
+- Iniciará Django en `0.0.0.0:8000`.
+- Iniciará el servidor de desarrollo de React en `0.0.0.0:5173`.
 
-**4. Open in browser**
+**4. Abrir en el navegador**
 ```
 http://localhost:5173
 ```
-Or from any device on your LAN:
+O desde cualquier dispositivo en su LAN:
 ```
-http://<your-local-ip>:5173
-```
-
----
-
-## Configuration
-
-### Environment variables (`backend/.env`)
-
-```env
-DEBUG=False
-ALLOWED_HOSTS=*
-CORS_ALLOW_ALL_ORIGINS=True
-API_SECRET_KEY=your-secret-key-here
-SECRET_KEY=your-django-secret-key
-```
-
-> **Important:** Change `API_SECRET_KEY` before using on a network. All API requests require the header `X-API-KEY: <your-key>`.
-
-### Risk settings
-
-Configured from the **Settings** tab in the UI:
-- Max drawdown % before auto-close
-- Default lot size
-- Global profit target %
-- Global stop loss %
-- Magic number for order identification
-- Alpha Vantage API key (for earnings calendar)
-
----
-
-## Running Tests
-
-```bash
-cd backend
-venv\Scripts\python.exe manage.py test quant_manager
-```
-
-Covers: models, API endpoints, permissions, signal classification, equity history.
-
----
-
-## Health Check
-
-```
-GET /api/health/
-```
-
-No authentication required. Returns:
-```json
-{
-  "status": "ok",
-  "mt5_connected": true,
-  "scanner_running": true,
-  "db_ok": true,
-  "last_signal_at": "2026-03-09T14:23:00Z",
-  "timestamp": "2026-03-09T14:23:05Z"
-}
+http://<su-ip-local>:5173
 ```
 
 ---
 
-## Notes
+## Notas
 
-- The database (`db.sqlite3`) is excluded from the repository. It is created automatically on first run via `manage.py migrate`.
-- Logs are stored in `backend/quant_backend_logs.log` with automatic rotation (10 MB × 5 files).
-- The frontend auto-detects the backend IP using `window.location.hostname`, so LAN access works without any configuration changes.
-- MT5 must be running and logged into an account before starting the backend.
+- La base de datos (`db.sqlite3`) está excluida del repositorio. Se crea automáticamente en la primera ejecución mediante `manage.py migrate`.
+- Los logs se almacenan en `backend/quant_backend_logs.log` con rotación automática (10 MB × 5 archivos).
+- El frontend autodetecta la IP del backend usando `window.location.hostname`.
+- MT5 debe estar ejecutándose y conectado a una cuenta antes de iniciar el backend.
 
 ---
 
-## License
+## Licencia
 
-See [LICENSE](LICENSE) for details.
+Ver [LICENSE](LICENSE) para más detalles.

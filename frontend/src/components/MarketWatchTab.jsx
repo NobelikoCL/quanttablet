@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Search, X, Settings2, RefreshCw, BarChart3,
     Activity, Clock, Save, Check, ChevronDown, ChevronUp,
@@ -9,6 +9,51 @@ import API_BASE from '../api';
 
 const API_KEY = import.meta.env.VITE_API_SECRET_KEY || 'quant-admin-supersecret-token-777';
 
+const ALL_TFS = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1'];
+
+/**
+ * TFSection — control reutilizable para seleccionar timeframes.
+ * multi=true  → permite selección múltiple (guarda como "M15,H1,D1")
+ * multi=false → selección única (solo un TF activo)
+ */
+const TFSection = ({ label, enabled = true, onToggleEnabled, value, onChange, multi = true }) => {
+    const selected = value ? value.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+    const toggle = (tf) => {
+        if (multi) {
+            const next = selected.includes(tf) ? selected.filter(t => t !== tf) : [...selected, tf];
+            if (next.length > 0) onChange(next.join(','));
+        } else {
+            onChange(tf);
+        }
+    };
+
+    return (
+        <div className="space-y-2 border-t border-dark-border/40 pt-4">
+            <div className="flex items-center gap-3">
+                {onToggleEnabled && (
+                    <button onClick={onToggleEnabled}
+                        className={`w-8 h-4 rounded-full transition-all relative flex-shrink-0 ${enabled ? 'bg-brand-accent' : 'bg-slate-700'}`}>
+                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${enabled ? 'left-4' : 'left-0.5'}`} />
+                    </button>
+                )}
+                <span className={`text-[10px] font-black uppercase tracking-widest ${enabled ? 'text-white' : 'text-slate-600'}`}>{label}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 pl-1">
+                {ALL_TFS.map(tf => {
+                    const active = multi ? selected.includes(tf) : selected[0] === tf;
+                    return (
+                        <button key={tf} onClick={() => toggle(tf)}
+                            className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border transition-all ${active ? 'bg-brand-accent/20 border-brand-accent/60 text-brand-accent' : 'bg-black/30 border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300'}`}>
+                            {tf}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
 const MarketWatchTab = () => {
     const [signals, setSignals] = useState({ all: [], scanning: [], fractals: [], emas: [] });
     const [loading, setLoading] = useState(true);
@@ -17,10 +62,6 @@ const MarketWatchTab = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [saveStatus, setSaveStatus] = useState(null);
     const [sortConfig, setSortConfig] = useState({ key: 'symbol', direction: 'asc' });
-    const [notifications, setNotifications] = useState([]);
-
-    // Referencia para comparar estados previos y disparar popups
-    const prevSignalsRef = useRef({});
 
     const [settings, setSettings] = useState({
         symbols: 'ALL',
@@ -29,18 +70,11 @@ const MarketWatchTab = () => {
         fractal_timeframes: 'M5,M15,M30,H1,H4,D1',
         is_ema_active: true,
         ema_timeframes: 'M15,M30,H1,H4',
+        stoch_timeframes: 'M15,M30,H1,H4,D1',
+        breakout_timeframe: 'M15',
         is_volume_filter_active: true,
         volume_min_multiplier: 1.5
     });
-
-    const addNotification = (notif) => {
-        const id = Date.now();
-        setNotifications(prev => [{ ...notif, id }, ...prev].slice(0, 5));
-        // Auto-remover después de 8 segundos
-        setTimeout(() => {
-            setNotifications(prev => prev.filter(n => n.id !== id));
-        }, 8000);
-    };
 
     const fetchSignals = async (manual = false) => {
         if (manual) setRefreshing(true);
@@ -49,21 +83,6 @@ const MarketWatchTab = () => {
                 headers: { 'X-API-KEY': API_KEY }
             });
             const data = await res.json();
-
-            // Detectar rupturas nuevas para popups
-            if (data.all) {
-                data.all.forEach(sig => {
-                    const prevStatus = prevSignalsRef.current[sig.symbol];
-                    if (prevStatus && prevStatus !== sig.breakout_m15 && sig.breakout_m15 !== 'RANGE') {
-                        addNotification({
-                            symbol: sig.symbol,
-                            type: sig.breakout_m15,
-                            time: new Date().toLocaleTimeString()
-                        });
-                    }
-                    prevSignalsRef.current[sig.symbol] = sig.breakout_m15;
-                });
-            }
 
             setSignals(data);
             setLoading(false);
@@ -136,9 +155,10 @@ const MarketWatchTab = () => {
     const getVolumeInfo = (signal) => {
         const vol = signal.tick_volume || 0;
         const ma = signal.volume_ma || 1;
-        const ratio = vol / ma;
-        const isHigh = ratio >= settings.volume_min_multiplier;
-        const percent = Math.min((ratio / 3) * 100, 100);
+        const ratio = ma > 0 ? vol / ma : 0;
+        const isHigh = ratio >= (settings.volume_min_multiplier || 1.5);
+        // Barra llena al 100% cuando el volumen supera 2× la media (ajustable)
+        const percent = Math.min((ratio / 2) * 100, 100);
         return { vol, ma, ratio, isHigh, percent };
     };
 
@@ -189,23 +209,6 @@ const MarketWatchTab = () => {
                 `}
             </style>
 
-            {/* ═══ Notificaciones Popups ═══ */}
-            <div className="fixed top-24 right-5 z-[100] flex flex-col gap-3 pointer-events-none">
-                {notifications.map(n => (
-                    <div key={n.id} className={`p-4 rounded-2xl border shadow-2xl animate-slide-in pointer-events-auto flex items-center gap-4 min-w-[300px] ${n.type === 'BULLISH_BREAKOUT' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-rose-500/10 border-rose-500/50 text-rose-400'}`}>
-                        <div className={`p-2 rounded-full ${n.type === 'BULLISH_BREAKOUT' ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`}>
-                            {n.type === 'BULLISH_BREAKOUT' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-                        </div>
-                        <div className="flex-1">
-                            <div className="text-xs font-black uppercase tracking-widest opacity-60">Ruptura M15</div>
-                            <div className="text-lg font-black tracking-tighter">{n.symbol}</div>
-                            <div className="text-[10px] font-bold uppercase">{n.type === 'BULLISH_BREAKOUT' ? 'Explosión Alcista' : 'Derrumbe Bajista'} • {n.time}</div>
-                        </div>
-                        <button className="p-1 opacity-40 hover:opacity-100 transition-opacity"><X className="w-4 h-4" /></button>
-                    </div>
-                ))}
-            </div>
-
             {/* ═══ Header ═══ */}
             <div className="flex justify-between items-center bg-dark-card/30 p-4 rounded-2xl border border-dark-border/50">
                 <div>
@@ -225,24 +228,87 @@ const MarketWatchTab = () => {
                 </div>
             </div>
 
-            {/* Settings Panel Simple */}
+            {/* Settings Panel Completo */}
             {showSettings && (
-                <div className="bg-dark-card border border-brand-accent/30 rounded-2xl p-5 shadow-2xl animate-slide-down">
-                    <h3 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-tighter mb-4">
-                        <Zap className="w-4 h-4 text-brand-accent" /> Configuración Global
+                <div className="bg-dark-card border border-brand-accent/30 rounded-2xl p-5 shadow-2xl animate-slide-down space-y-5">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2 uppercase tracking-tighter">
+                        <Zap className="w-4 h-4 text-brand-accent" /> Configuración del Scanner
                     </h3>
+
+                    {/* Fila 1: Activos + Scanner ON/OFF */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Activos (ALL para todos)</label>
                             <input type="text" className="w-full bg-black/40 border border-dark-border rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-brand-accent font-mono"
                                 value={settings.symbols} onChange={(e) => setSettings({ ...settings, symbols: e.target.value })} />
                         </div>
-                        <div className="flex flex-col justify-end">
-                            <button onClick={handleSave} className="py-2.5 rounded-xl bg-brand-accent text-white font-black text-xs uppercase tracking-widest hover:brightness-110 transition-all flex items-center justify-center gap-2">
-                                <Save className="w-4 h-4" /> Guardar Todo
+                        <div className="flex items-end gap-3">
+                            <button onClick={() => setSettings(s => ({ ...s, is_scanner_active: !s.is_scanner_active }))}
+                                className={`flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all border ${settings.is_scanner_active ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
+                                {settings.is_scanner_active ? '● Scanner ON' : '○ Scanner OFF'}
                             </button>
                         </div>
                     </div>
+
+                    {/* Fractales */}
+                    <TFSection
+                        label="Fractales (Bill Williams)"
+                        enabled={settings.is_fractal_active}
+                        onToggleEnabled={() => setSettings(s => ({ ...s, is_fractal_active: !s.is_fractal_active }))}
+                        value={settings.fractal_timeframes}
+                        onChange={(v) => setSettings(s => ({ ...s, fractal_timeframes: v }))}
+                        multi
+                    />
+
+                    {/* EMA Confluencia */}
+                    <TFSection
+                        label="Confluencia EMA (20/40/80 vs 200)"
+                        enabled={settings.is_ema_active}
+                        onToggleEnabled={() => setSettings(s => ({ ...s, is_ema_active: !s.is_ema_active }))}
+                        value={settings.ema_timeframes}
+                        onChange={(v) => setSettings(s => ({ ...s, ema_timeframes: v }))}
+                        multi
+                    />
+
+                    {/* Estocástico */}
+                    <TFSection
+                        label="Estocástico (14,3,3)"
+                        enabled
+                        value={settings.stoch_timeframes}
+                        onChange={(v) => setSettings(s => ({ ...s, stoch_timeframes: v }))}
+                        multi
+                    />
+
+                    {/* Ruptura Donchian */}
+                    <TFSection
+                        label="Ruptura Donchian (20 períodos)"
+                        enabled
+                        value={settings.breakout_timeframe}
+                        onChange={(v) => setSettings(s => ({ ...s, breakout_timeframe: v }))}
+                        multi={false}
+                    />
+
+                    {/* Volumen */}
+                    <div className="flex items-center gap-4 pt-1 border-t border-dark-border/40">
+                        <button onClick={() => setSettings(s => ({ ...s, is_volume_filter_active: !s.is_volume_filter_active }))}
+                            className={`px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all border ${settings.is_volume_filter_active ? 'bg-amber-500/10 border-amber-500/40 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
+                            Filtro Volumen {settings.is_volume_filter_active ? 'ON' : 'OFF'}
+                        </button>
+                        <div className="flex items-center gap-2">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Multiplicador</label>
+                            <input type="number" step="0.1" min="1" max="5"
+                                className="w-20 bg-black/40 border border-dark-border rounded-lg px-2 py-1 text-white text-xs outline-none focus:border-brand-accent font-mono text-center"
+                                value={settings.volume_min_multiplier}
+                                onChange={(e) => setSettings(s => ({ ...s, volume_min_multiplier: parseFloat(e.target.value) || 1.5 }))} />
+                        </div>
+                    </div>
+
+                    {/* Guardar */}
+                    <button onClick={handleSave} disabled={saveStatus === 'saving'}
+                        className={`w-full py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${saveStatus === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-brand-accent text-white hover:brightness-110'}`}>
+                        {saveStatus === 'saving' ? <RefreshCw className="w-4 h-4 animate-spin" /> : saveStatus === 'success' ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                        {saveStatus === 'saving' ? 'Guardando...' : saveStatus === 'success' ? 'Guardado' : 'Guardar Configuración'}
+                    </button>
                 </div>
             )}
 
@@ -267,7 +333,7 @@ const MarketWatchTab = () => {
                                 <th onClick={() => requestSort('fractal_price')} className="px-4 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer hover:text-white transition-colors text-right">
                                     <div className="flex items-center justify-end">Precio / Spread <SortIcon column="fractal_price" /></div>
                                 </th>
-                                <th className="px-4 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Ruptura M15</th>
+                                <th className="px-4 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Ruptura {settings.breakout_timeframe || 'M15'}</th>
                                 <th onClick={() => requestSort('tick_volume')} className="px-4 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer hover:text-white transition-colors">
                                     <div className="flex items-center">Volumen <SortIcon column="tick_volume" /></div>
                                 </th>
@@ -288,6 +354,9 @@ const MarketWatchTab = () => {
                                     const isEMA = sig.ema_signal;
                                     const ema200Status = sig.ema_200_h1_status;
 
+                                    const digits = sig.symbol_digits ?? 5;
+                                    const displayPrice = sig.current_bid ?? sig.fractal_price ?? 0;
+
                                     return (
                                         <tr key={sig.symbol} className={`hover:bg-white/[0.02] transition-colors group ${isBreakout ? (sig.breakout_m15.includes('BULL') ? 'bg-emerald-500/[0.03]' : 'bg-rose-500/[0.03]') : ''}`}>
                                             <td className="px-4 py-4">
@@ -301,7 +370,7 @@ const MarketWatchTab = () => {
                                             </td>
 
                                             <td className="px-4 py-4 text-right">
-                                                <div className="text-sm font-mono font-bold text-slate-200">{parseFloat(sig.fractal_price || 0).toFixed(5)}</div>
+                                                <div className="text-sm font-mono font-bold text-slate-200">{parseFloat(displayPrice).toFixed(digits)}</div>
                                             </td>
 
                                             {/* COLUMNA RUPTURA M15 */}

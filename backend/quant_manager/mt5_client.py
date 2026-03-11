@@ -125,35 +125,61 @@ class MT5Engine:
                 # --- LÓGICA: Monitor de Símbolos ---
                 from .models import SymbolProfitTarget
                 from django.db.models import Q
-                
-                # Buscamos targets que tengan activo el profit O la pérdida
-                active_symbol_targets = SymbolProfitTarget.objects.filter(Q(is_profit_active=True) | Q(is_loss_active=True))
-                
-                if active_symbol_targets.exists():
-                    positions = mt5.positions_get()
-                    if positions:
-                        # Agrupar profit por símbolo
-                        symbol_profits = {}
-                        for pos in positions:
-                            symbol_profits[pos.symbol] = symbol_profits.get(pos.symbol, 0.0) + pos.profit
-                        
-                        for target in active_symbol_targets:
-                            current_sym_profit = symbol_profits.get(target.symbol, 0.0)
-                            
-                            # 1. Chequeo de Profit
-                            if target.is_profit_active and current_sym_profit >= float(target.target_profit_usd):
-                                logger.info(f"Target de PROFIT alcanzado para {target.symbol}: {current_sym_profit} >= {target.target_profit_usd}. Cerrando...")
-                                MT5Engine.close_positions_by_symbol(target.symbol)
-                                target.is_profit_active = False
-                                target.save()
-                                
-                            # 2. Chequeo de Pérdida
-                            elif target.is_loss_active:
-                                if current_sym_profit <= -abs(float(target.target_loss_usd)):
-                                    logger.warning(f"Límite de PÉRDIDA alcanzado para {target.symbol}: {current_sym_profit} <= -{target.target_loss_usd}. Cerrando...")
-                                    MT5Engine.close_positions_by_symbol(target.symbol)
-                                    target.is_loss_active = False
-                                    target.save()
+
+                # Recopilar profits actuales una sola vez para todos los monitores
+                raw_positions = mt5.positions_get()
+                symbol_profits = {}
+                if raw_positions:
+                    for pos in raw_positions:
+                        symbol_profits[pos.symbol] = symbol_profits.get(pos.symbol, 0.0) + pos.profit
+
+                # Buscamos targets que tengan activo el profit, la pérdida O el trailing
+                active_symbol_targets = SymbolProfitTarget.objects.filter(
+                    Q(is_profit_active=True) | Q(is_loss_active=True) | Q(is_trailing_active=True)
+                )
+
+                for target in active_symbol_targets:
+                    current_sym_profit = symbol_profits.get(target.symbol, 0.0)
+
+                    # 1. Chequeo de Profit fijo
+                    if target.is_profit_active and current_sym_profit >= float(target.target_profit_usd):
+                        logger.info(f"Target de PROFIT alcanzado para {target.symbol}: {current_sym_profit} >= {target.target_profit_usd}. Cerrando...")
+                        MT5Engine.close_positions_by_symbol(target.symbol)
+                        target.is_profit_active = False
+                        target.save()
+                        continue
+
+                    # 2. Chequeo de Pérdida fija
+                    if target.is_loss_active and current_sym_profit <= -abs(float(target.target_loss_usd)):
+                        logger.warning(f"Límite de PÉRDIDA alcanzado para {target.symbol}: {current_sym_profit} <= -{target.target_loss_usd}. Cerrando...")
+                        MT5Engine.close_positions_by_symbol(target.symbol)
+                        target.is_loss_active = False
+                        target.save()
+                        continue
+
+                    # 3. Trailing Stop en USD
+                    if target.is_trailing_active:
+                        trail_dist = float(target.trail_distance_usd)
+                        peak = float(target.trail_peak_usd)
+
+                        # Actualizar el pico máximo si el profit actual lo supera
+                        if current_sym_profit > peak:
+                            target.trail_peak_usd = current_sym_profit
+                            target.save(update_fields=['trail_peak_usd'])
+                            peak = current_sym_profit
+                            logger.debug(f"[Trailing] {target.symbol}: nuevo pico ${peak:.2f}")
+
+                        # Activar cierre solo si alguna vez se alcanzó la distancia mínima de trail
+                        # y el precio retrocedió desde el pico más de trail_dist USD
+                        if peak >= trail_dist and current_sym_profit < peak - trail_dist:
+                            logger.warning(
+                                f"[Trailing Stop] {target.symbol}: profit ${current_sym_profit:.2f} "
+                                f"retrocedió desde pico ${peak:.2f} más de ${trail_dist:.2f}. Cerrando..."
+                            )
+                            MT5Engine.close_positions_by_symbol(target.symbol)
+                            target.is_trailing_active = False
+                            target.trail_peak_usd = 0.00
+                            target.save()
                 
             except Exception as e:
                 logger.error(f"Error en el bucle del monitor de riesgo: {str(e)}")
@@ -228,7 +254,10 @@ class MT5Engine:
                         "symbol_target_usd": float(target_obj.target_profit_usd) if target_obj else 0.0,
                         "symbol_target_active": target_obj.is_profit_active if target_obj else False,
                         "symbol_loss_usd": float(target_obj.target_loss_usd) if target_obj else 0.0,
-                        "symbol_loss_active": target_obj.is_loss_active if target_obj else False
+                        "symbol_loss_active": target_obj.is_loss_active if target_obj else False,
+                        "trailing_active": target_obj.is_trailing_active if target_obj else False,
+                        "trail_distance_usd": float(target_obj.trail_distance_usd) if target_obj else 5.0,
+                        "trail_peak_usd": float(target_obj.trail_peak_usd) if target_obj else 0.0,
                     }
                 groups[sym]["count"] += 1
                 groups[sym]["volume"] += pos.volume
@@ -728,28 +757,20 @@ class MT5Engine:
                             MT5Engine._initial_deposit_cache = temp_initial
                             initial_deposit = temp_initial
                             
-            # --- NUEVO CÁLCULO SEGÚN REQUERIMIENTO DEL USUARIO ---
-            # El "Profit Hoy" USD se mantiene como lo generado HOY (Profit Bruto + Comisiones + Swaps + Flotante Hoy)
-            # Pero el % se calcula en base al DEPÓSITO INICIAL
-            
-            # Profit cerrado hoy neto
-            daily_realized_net = daily_realized_profit
-            # Equidad menos Balance (profit de operacion abiertas)
+            # Equidad menos Balance (profit de operaciones abiertas)
             floating_profit = current_equity - current_balance
-            
-            # Profit total del día (cerrado + flotante)
-            # Como balance_start_day ya tiene restado el profit cerrado hoy, la diferencia de equidad contra eso da el total del dia
-            net_daily_profit_usd = current_equity - initial_capital_today
-            
-            daily_pl_percent = 0.0
-            # IMPORTANTE: Calcular porcentaje sobre el depósito inicial, no sobre el balance del inicio del día
+
+            # P/L y % calculados en base al depósito inicial para que ambas métricas sean consistentes.
+            # Si initial_deposit no está disponible, se usa initial_capital_today como fallback.
             if initial_deposit > 0:
+                net_daily_profit_usd = current_equity - initial_deposit
                 daily_pl_percent = (net_daily_profit_usd / initial_deposit) * 100
-            elif initial_capital_today > 0:
-                # Fallback por si no hay historial de depósito
-                daily_pl_percent = (net_daily_profit_usd / initial_capital_today) * 100
-            
-            logger.info(f"P&L Sincronizado Broker: {daily_pl_percent:.2f}% (Base: {initial_deposit}) | Flotante: {floating_profit:.2f} | Inicial Hoy: {initial_capital_today}")
+            else:
+                # Fallback: calcular contra el capital de inicio del día
+                net_daily_profit_usd = current_equity - initial_capital_today
+                daily_pl_percent = (net_daily_profit_usd / initial_capital_today) * 100 if initial_capital_today > 0 else 0.0
+
+            logger.info(f"P&L vs Depósito: {net_daily_profit_usd:.2f} USD ({daily_pl_percent:.2f}%) | Base: {initial_deposit} | Flotante: {floating_profit:.2f} | Inicial Hoy: {initial_capital_today}")
             
             return {
                 "daily_pl_percent": round(daily_pl_percent, 2),

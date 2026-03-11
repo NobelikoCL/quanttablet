@@ -42,7 +42,9 @@ import API_BASE from './api';
 // ─── Ítem individual de notificación ─────────────────────────────────────────
 const NotificationItem = ({ notif, onRead, onDismiss, onSignalClick }) => {
   const isFractal = notif.type === 'fractal';
+  const isBreakout = notif.type === 'breakout';
   const isBuy = notif.setup_type === 'BUY';
+  const isBullBreak = notif.breakout_type === 'BULLISH_BREAKOUT';
 
   const handleClick = () => {
     onRead(notif.id);
@@ -65,18 +67,33 @@ const NotificationItem = ({ notif, onRead, onDismiss, onSignalClick }) => {
       <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5
         ${isFractal
           ? (isBuy ? 'bg-emerald-500/15 border border-emerald-500/25' : 'bg-rose-500/15 border border-rose-500/25')
+          : isBreakout
+          ? (isBullBreak ? 'bg-emerald-500/15 border border-emerald-500/25' : 'bg-rose-500/15 border border-rose-500/25')
           : 'bg-amber-500/15 border border-amber-500/25'
         }`}
       >
         {isFractal
           ? (isBuy ? <TrendingUp className="w-4 h-4 text-emerald-400" /> : <TrendingDown className="w-4 h-4 text-rose-400" />)
+          : isBreakout
+          ? (isBullBreak ? <TrendingUp className="w-4 h-4 text-emerald-400" /> : <TrendingDown className="w-4 h-4 text-rose-400" />)
           : <Newspaper className="w-4 h-4 text-amber-400" />
         }
       </div>
 
       {/* Contenido */}
       <div className="flex-1 min-w-0">
-        {isFractal ? (
+        {isBreakout ? (
+          <>
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className={`text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded
+                ${isBullBreak ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                {isBullBreak ? 'ALCISTA' : 'BAJISTA'}
+              </span>
+              <span className="text-sm font-black text-white">{notif.symbol}</span>
+            </div>
+            <p className="text-[11px] text-slate-400">Ruptura Donchian</p>
+          </>
+        ) : isFractal ? (
           <>
             <div className="flex items-center gap-2 mb-0.5">
               <span className={`text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded
@@ -132,7 +149,7 @@ const NotificationItem = ({ notif, onRead, onDismiss, onSignalClick }) => {
 };
 
 // ─── Centro de notificaciones unificado ──────────────────────────────────────
-const FILTER_LABELS = { all: 'Todas', unread: 'Sin leer', fractal: 'Fractales', macro: 'Macro' };
+const FILTER_LABELS = { all: 'Todas', unread: 'Sin leer', fractal: 'Fractales', macro: 'Macro', breakout: 'Rupturas' };
 
 const NotificationCenter = ({ notifications, onMarkAllRead, onMarkRead, onDismiss, onClearAll, onSignalClick }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -145,6 +162,7 @@ const NotificationCenter = ({ notifications, onMarkAllRead, onMarkRead, onDismis
     if (filter === 'unread') return !n.is_read;
     if (filter === 'fractal') return n.type === 'fractal';
     if (filter === 'macro') return n.type === 'macro';
+    if (filter === 'breakout') return n.type === 'breakout';
     return true;
   });
 
@@ -159,8 +177,9 @@ const NotificationCenter = ({ notifications, onMarkAllRead, onMarkRead, onDismis
   // Cerrar al cambiar de tab via teclado/fuera
   const fractalCount = notifications.filter(n => n.type === 'fractal').length;
   const macroCount = notifications.filter(n => n.type === 'macro').length;
+  const breakoutCount = notifications.filter(n => n.type === 'breakout').length;
 
-  const filterCounts = { all: notifications.length, unread: unreadCount, fractal: fractalCount, macro: macroCount };
+  const filterCounts = { all: notifications.length, unread: unreadCount, fractal: fractalCount, macro: macroCount, breakout: breakoutCount };
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -403,6 +422,8 @@ const DEFAULT_LOCAL_SETTINGS = {
   notif_popup_duration: 3000,
   notif_fractal_alerts: true,
   notif_macro_alerts: true,
+  notif_breakout_alerts: true,
+  notif_drawdown_alerts: true,
   notif_session_popup: true,
   notif_session_bell: true,
   notif_pre_alert_minutes: 5,
@@ -433,6 +454,8 @@ function App() {
   const isFirstMacroFetchRef = useRef(true);
   // Para detectar *nuevos* fractales vs los que ya estaban
   const prevFractalIdsRef = useRef(new Set());
+  // Para detectar cambios de breakout por símbolo
+  const prevBreakoutsRef = useRef({});
   // Backoff exponencial para reconexión cuando está offline
   const backoffIntervalRef = useRef(null);
   const backoffDelayRef = useRef(5000);
@@ -545,6 +568,58 @@ function App() {
       }
 
       prevFractalIdsRef.current = activeFractalIds;
+
+      // Detectar nuevos breakouts Donchian
+      if (localSettings.notif_breakout_alerts) {
+        const allSignals = response.data.all || [];
+        const breakoutNotifs = [];
+        allSignals.forEach(sig => {
+          const prev = prevBreakoutsRef.current[sig.symbol];
+          if (
+            sig.breakout_m15 !== 'RANGE' &&
+            prev !== sig.breakout_m15 &&
+            prev !== undefined
+          ) {
+            breakoutNotifs.push({
+              id: `breakout_${sig.symbol}_${Date.now()}`,
+              type: 'breakout',
+              is_read: false,
+              timestamp: new Date().toISOString(),
+              symbol: sig.symbol,
+              breakout_type: sig.breakout_m15,
+            });
+          }
+          prevBreakoutsRef.current[sig.symbol] = sig.breakout_m15;
+        });
+        if (breakoutNotifs.length > 0) {
+          playNotificationSound();
+          setAllNotifications(prev =>
+            [...breakoutNotifs, ...prev].slice(0, 100)
+          );
+          breakoutNotifs.forEach(bo => {
+            const isBull = bo.breakout_type === 'BULLISH_BREAKOUT';
+            toast.custom((t) => (
+              <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-sm w-full shadow-2xl rounded-xl pointer-events-auto flex items-center gap-3 p-3.5 border-l-4 ${isBull ? 'bg-emerald-950/95 border-l-emerald-500 ring-1 ring-emerald-500/30' : 'bg-rose-950/95 border-l-rose-500 ring-1 ring-rose-500/30'}`}>
+                <div className={`p-2 rounded-lg flex-shrink-0 ${isBull ? 'bg-emerald-500/15' : 'bg-rose-500/15'}`}>
+                  {isBull ? <TrendingUp className={`w-4 h-4 text-emerald-400`} /> : <TrendingDown className={`w-4 h-4 text-rose-400`} />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs font-black uppercase tracking-widest ${isBull ? 'text-emerald-400' : 'text-rose-400'}`}>{isBull ? 'Ruptura Alcista' : 'Ruptura Bajista'}</p>
+                  <p className="text-sm font-black text-white">{bo.symbol}</p>
+                </div>
+                <button onClick={() => toast.dismiss(t.id)} className="text-slate-500 hover:text-white flex-shrink-0"><X className="w-4 h-4" /></button>
+              </div>
+            ), { duration: localSettings.notif_popup_duration });
+          });
+        }
+      } else {
+        // Aun así actualizar el ref para no generar notificaciones acumuladas al re-activar
+        const allSignals = response.data.all || [];
+        allSignals.forEach(sig => {
+          prevBreakoutsRef.current[sig.symbol] = sig.breakout_m15;
+        });
+      }
+
       setIsOnline(true);
       setLastOnlineAt(new Date());
       backoffDelayRef.current = 5000;

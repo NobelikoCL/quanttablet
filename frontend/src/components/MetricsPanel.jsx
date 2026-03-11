@@ -31,7 +31,7 @@ const MetricsPanel = ({ data = {} }) => {
             alert: isInDrawdown
         },
         {
-            label: 'Profit/Loss (USD) Hoy',
+            label: 'P/L vs Depósito (USD)',
             value: data.daily_profit_usd,
             isUSD: true,
             icon: (data.daily_profit_usd || 0) >= 0 ? TrendingUp : TrendingDown,
@@ -40,7 +40,7 @@ const MetricsPanel = ({ data = {} }) => {
             valueColor: (data.daily_profit_usd || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
         },
         {
-            label: 'Rendimiento Hoy (%)',
+            label: 'Rendimiento vs Depósito (%)',
             value: data.daily_pl_percent,
             isPercent: true,
             icon: Activity,

@@ -22,6 +22,8 @@ const DashboardTab = () => {
     const isFirstLoad = useRef(true);
     // Rastreo de alertas de drawdown ya disparadas para no repetir cada 3s
     const lastDrawdownAlertRef = useRef({ level: 0, ts: 0 });
+    // Trail distance local por símbolo (input no controlado con valor inicial del servidor)
+    const [trailInputs, setTrailInputs] = useState({});
 
     useEffect(() => {
         const accInterval = setInterval(fetchAll, 3000); // Polling cada 3s
@@ -257,6 +259,27 @@ const DashboardTab = () => {
             fetchAll();
         } catch (e) {
             toast.error("Error al guardar meta", { id: 'symtarget' });
+        }
+    };
+
+    const handleToggleTrailing = async (symbol, currentActive, trailUsd) => {
+        const newActive = !currentActive;
+        try {
+            toast.loading(newActive ? "Activando Trailing Stop..." : "Desactivando...", { id: `ts-${symbol}` });
+            await axios.post(`${API_BASE}/api/symbol-targets/`, {
+                symbol,
+                is_trailing_active: newActive,
+                trail_distance_usd: parseFloat(trailUsd) || 5,
+                // Reset peak al activar para empezar desde cero
+                ...(newActive ? { trail_peak_usd: 0 } : {})
+            });
+            toast.success(
+                newActive ? `Trailing Stop activado — distancia $${trailUsd}` : 'Trailing Stop desactivado',
+                { id: `ts-${symbol}` }
+            );
+            fetchAll();
+        } catch (e) {
+            toast.error("Error al configurar Trailing Stop", { id: `ts-${symbol}` });
         }
     };
 
@@ -519,7 +542,8 @@ const DashboardTab = () => {
                                             <td className={`py-3 px-3 text-right font-mono font-bold text-lg ${pos.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                                                 ${pos.profit.toFixed(2)}
                                             </td>
-                                            <td className="py-3 px-3 text-right">
+                                            <td className="py-3 px-3 text-right min-w-[200px]">
+                                                {/* TP */}
                                                 <div className="flex items-center justify-end gap-2 mb-2">
                                                     <span className="text-[10px] text-emerald-500 font-bold">TP $</span>
                                                     <input
@@ -533,7 +557,9 @@ const DashboardTab = () => {
                                                         {pos.symbol_target_active ? 'ON' : 'OFF'}
                                                     </button>
                                                 </div>
-                                                <div className="flex items-center justify-end gap-2">
+
+                                                {/* SL */}
+                                                <div className="flex items-center justify-end gap-2 mb-2">
                                                     <span className="text-[10px] text-rose-500 font-bold">SL $</span>
                                                     <input
                                                         type="number"
@@ -546,6 +572,75 @@ const DashboardTab = () => {
                                                         {pos.symbol_loss_active ? 'ON' : 'OFF'}
                                                     </button>
                                                 </div>
+
+                                                {/* TRAILING STOP */}
+                                                {(() => {
+                                                    const isActive = pos.trailing_active;
+                                                    const peak = parseFloat(pos.trail_peak_usd || 0);
+                                                    const dist = parseFloat(pos.trail_distance_usd || 5);
+                                                    const currentProfit = parseFloat(pos.profit || 0);
+                                                    const stopLevel = peak - dist;
+                                                    // % de seguridad: cuánto queda hasta el stop (0%=tocando el stop, 100%=en el pico)
+                                                    const safePercent = isActive && peak > 0 && dist > 0
+                                                        ? Math.max(0, Math.min(100, ((currentProfit - stopLevel) / dist) * 100))
+                                                        : 0;
+                                                    const trailInputVal = trailInputs[pos.symbol] ?? dist;
+
+                                                    return (
+                                                        <div className={`rounded-lg border p-2 transition-all ${isActive ? 'bg-amber-500/5 border-amber-500/30' : 'bg-slate-800/30 border-slate-700/50'}`}>
+                                                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                                                                <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider">⟳ Trail $</span>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0.5"
+                                                                        step="0.5"
+                                                                        value={trailInputVal}
+                                                                        onChange={e => setTrailInputs(prev => ({ ...prev, [pos.symbol]: e.target.value }))}
+                                                                        disabled={isActive}
+                                                                        className="w-14 bg-[#0f172a] border border-[#334155] rounded px-1.5 py-1 text-xs font-mono text-white text-center outline-none focus:border-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    />
+                                                                    <button
+                                                                        onClick={() => handleToggleTrailing(pos.symbol, isActive, trailInputVal)}
+                                                                        className={`px-2 py-1 rounded text-[10px] font-black transition-all ${isActive ? 'bg-amber-500 text-black shadow-[0_0_10px_rgba(245,158,11,0.4)]' : 'bg-slate-700 text-slate-300 hover:bg-amber-500/20 hover:text-amber-400 hover:border-amber-500/30 border border-transparent'}`}
+                                                                    >
+                                                                        {isActive ? 'ON' : 'OFF'}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            {isActive && (
+                                                                <div className="space-y-1">
+                                                                    <div className="flex justify-between text-[9px] font-mono">
+                                                                        <span className="text-slate-500">Stop: <span className="text-rose-400 font-bold">${stopLevel.toFixed(2)}</span></span>
+                                                                        <span className="text-slate-500">Pico: <span className="text-amber-400 font-bold">${peak.toFixed(2)}</span></span>
+                                                                    </div>
+                                                                    <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
+                                                                        <div
+                                                                            className={`h-full rounded-full transition-all duration-1000 ${
+                                                                                safePercent > 60 ? 'bg-emerald-500' :
+                                                                                safePercent > 25 ? 'bg-amber-500' :
+                                                                                'bg-rose-500 animate-pulse'
+                                                                            }`}
+                                                                            style={{ width: `${safePercent}%` }}
+                                                                        />
+                                                                    </div>
+                                                                    <div className="text-[9px] text-center font-bold" style={{
+                                                                        color: safePercent > 60 ? '#10b981' : safePercent > 25 ? '#f59e0b' : '#ef4444'
+                                                                    }}>
+                                                                        {safePercent < 5 ? '⚠ PRÓXIMO AL STOP' : `${safePercent.toFixed(0)}% de margen`}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {!isActive && (
+                                                                <div className="text-[9px] text-slate-600 text-center">
+                                                                    Cierra si retrocede ${trailInputVal} desde el pico
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="py-3 px-3 text-center">
                                                 <div className="flex flex-col gap-2 items-center justify-center">

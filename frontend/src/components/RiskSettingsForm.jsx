@@ -18,6 +18,8 @@ const DEFAULT_LOCAL_SETTINGS = {
     notif_popup_duration: 3000,
     notif_fractal_alerts: true,
     notif_macro_alerts: true,
+    notif_breakout_alerts: true,
+    notif_drawdown_alerts: true,
     notif_session_popup: true,
     notif_session_bell: true,
     notif_pre_alert_minutes: 5,
@@ -253,6 +255,10 @@ const RiskSettingsForm = () => {
                         onChange={(v) => updateLocal('notif_fractal_alerts', v)} />
                     <ToggleSwitch label="Alertas macroeconómicas" description="Notificaciones en tiempo real (NFP, IPC, Tasas)" checked={localSettings.notif_macro_alerts}
                         onChange={(v) => updateLocal('notif_macro_alerts', v)} />
+                    <ToggleSwitch label="Alertas de rupturas Donchian" description="Toast y registro cuando un activo rompe el canal de 20 períodos" checked={localSettings.notif_breakout_alerts}
+                        onChange={(v) => updateLocal('notif_breakout_alerts', v)} />
+                    <ToggleSwitch label="Alertas de drawdown" description="Notificaciones al alcanzar 50%, 75% y 90% del límite de drawdown" checked={localSettings.notif_drawdown_alerts ?? true}
+                        onChange={(v) => updateLocal('notif_drawdown_alerts', v)} />
                     <ToggleSwitch label="Popup de sesión pre-apertura" description="Modal automático 5 min antes de apertura de mercado" checked={localSettings.notif_session_popup}
                         onChange={(v) => updateLocal('notif_session_popup', v)} />
                     <ToggleSwitch label="Campana de apertura" description="Sonido de campana al abrir un mercado" checked={localSettings.notif_session_bell}
