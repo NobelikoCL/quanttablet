@@ -9,15 +9,22 @@ class RiskSettingsSerializer(serializers.ModelSerializer):
 class SymbolProfitTargetSerializer(serializers.ModelSerializer):
     class Meta:
         model = SymbolProfitTarget
-        fields = '__all__'
+        fields = [
+            'id', 'symbol',
+            'target_profit_usd', 'is_profit_active',
+            'target_loss_usd', 'is_loss_active',
+            'is_trailing_active', 'trail_distance_usd', 'trail_peak_usd',
+        ]
 
 class MarketWatchSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = MarketWatchSettings
         fields = [
-            'id', 'symbols', 'is_scanner_active', 
+            'id', 'symbols', 'is_scanner_active',
             'is_fractal_active', 'fractal_timeframes',
             'is_ema_active', 'ema_timeframes',
+            'stoch_timeframes',
+            'breakout_timeframe',
             'is_volume_filter_active', 'volume_min_multiplier'
         ]
 
@@ -30,6 +37,7 @@ class MarketWatchSignalSerializer(serializers.ModelSerializer):
             'ema_signal', 'ema_matched_tfs', 'ema_200_h1_status',
             'stoch_status', 'stoch_data', 'breakout_m15',
             'tick_volume', 'volume_ma',
+            'current_bid', 'symbol_digits',
             'last_update', 'message'
         ]
 

@@ -129,6 +129,24 @@ class SymbolProfitTarget(models.Model):
         help_text="Estado del monitor de pérdida para este símbolo"
     )
 
+    # Trailing Stop en USD
+    is_trailing_active = models.BooleanField(
+        default=False,
+        help_text="Activa el trailing stop por símbolo"
+    )
+    trail_distance_usd = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=5.00,
+        help_text="Distancia de retroceso en USD para activar el cierre (ej: 5.00)"
+    )
+    trail_peak_usd = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0.00,
+        help_text="Máximo profit registrado desde que el trailing está activo (auto-actualizado)"
+    )
+
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -154,12 +172,26 @@ class MarketWatchSettings(models.Model):
         help_text="Temporalidades a evaluar para EMAs, separadas por coma"
     )
     
+    # Configuraciones de Estocástico
+    stoch_timeframes = models.CharField(
+        max_length=50,
+        default="M15,M30,H1,H4,D1",
+        help_text="Temporalidades a evaluar para el estocástico, separadas por coma"
+    )
+
+    # Configuración de Ruptura (Donchian)
+    breakout_timeframe = models.CharField(
+        max_length=10,
+        default="M15",
+        help_text="Temporalidad del canal Donchian para detectar rupturas"
+    )
+
     # Configuraciones de Volumen
     is_volume_filter_active = models.BooleanField(default=False, help_text="Resaltar símbolos con volumen inusual")
     volume_min_multiplier = models.DecimalField(
-        max_digits=4, 
-        decimal_places=2, 
-        default=1.50, 
+        max_digits=4,
+        decimal_places=2,
+        default=1.50,
         help_text="Multiplicador sobre la media para considerar volumen alto (ej: 1.5)"
     )
 
@@ -193,7 +225,7 @@ class MarketWatchSignal(models.Model):
     ema_200_h1_status = models.CharField(max_length=20, blank=True, null=True, help_text="ABOVE_EMA200 o BELOW_EMA200 en H1")
     
     # Datos de Estocástico
-    stoch_status = models.CharField(max_length=50, blank=True, null=True, help_text="BULLISH_CROSS, BEARISH_CROSS, OVERBOUGHT, OVERSOLD")
+    stoch_status = models.CharField(max_length=500, blank=True, null=True, help_text="BULLISH_CROSS, BEARISH_CROSS, OVERBOUGHT, OVERSOLD")
     stoch_data = models.JSONField(default=dict, help_text="Datos detallados de estocástico por TF")
 
     # Datos de Rupturas
@@ -202,7 +234,11 @@ class MarketWatchSignal(models.Model):
     # Datos de Volumen
     tick_volume = models.BigIntegerField(default=0, help_text="Volumen de ticks actual")
     volume_ma = models.FloatField(default=0.0, help_text="Media móvil del volumen (filtro)")
-    
+
+    # Precio actual y formato según tipo de instrumento
+    current_bid = models.DecimalField(max_digits=15, decimal_places=8, blank=True, null=True, help_text="Precio bid actual del tick")
+    symbol_digits = models.IntegerField(default=5, help_text="Decimales del símbolo según MT5 (forex=5, índices=2, etc.)")
+
     last_update = models.DateTimeField(auto_now=True)
     message = models.TextField(blank=True, null=True)
 

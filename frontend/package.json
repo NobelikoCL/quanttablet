@@ -1,5 +1,6 @@
 {
   "name": "frontend",
+  "description": "Dashboard de trading cuantitativo para MetaTrader 5",
   "private": true,
   "version": "0.0.0",
   "type": "module",

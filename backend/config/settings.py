@@ -11,9 +11,31 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+import shutil
 import logging.handlers
 from pathlib import Path
 import environ
+
+
+class _WinSafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """RotatingFileHandler compatible con Windows + multi-hilo.
+    En lugar de os.rename() (que falla si el archivo está abierto),
+    usa copy2 + truncate para rotar sin bloquear otros hilos."""
+
+    def rotate(self, source, dest):
+        try:
+            if os.path.exists(dest):
+                os.remove(dest)
+            shutil.copy2(source, dest)
+            # Truncar el archivo fuente (vaciar sin cerrarlo del todo)
+            with open(source, 'w', encoding='utf-8'):
+                pass
+        except Exception:
+            # Fallback al comportamiento estándar si algo falla
+            try:
+                super().rotate(source, dest)
+            except Exception:
+                pass
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -91,11 +113,22 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
+    # Base de datos principal: Django + configuraciones (baja frecuencia de escritura)
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
-    }
+        'OPTIONS': {'timeout': 30},
+    },
+    # Base de datos del scanner: solo MarketWatchSignal (escritura intensiva cada 5s)
+    # Aislada para que el scanner nunca bloquee las peticiones API
+    'scanner': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'scanner.sqlite3',
+        'OPTIONS': {'timeout': 30},
+    },
 }
+
+DATABASE_ROUTERS = ['quant_manager.db_router.ScannerRouter']
 
 # REST FRAMEWORK - API_KEY Global
 REST_FRAMEWORK = {
@@ -180,12 +213,13 @@ LOGGING = {
         },
         'file': {
             'level': 'INFO',
-            'class': 'logging.handlers.RotatingFileHandler',
+            'class': 'config.settings._WinSafeRotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'quant_backend_logs.log'),
             'maxBytes': 10 * 1024 * 1024,  # 10 MB por archivo
             'backupCount': 5,              # Máximo 5 archivos rotados (50 MB total)
             'formatter': 'verbose',
             'encoding': 'utf-8',
+            'delay': True,
         },
     },
     'loggers': {
