@@ -9,17 +9,18 @@ echo          INICIANDO PANEL CUANTITATIVO MT5
 echo =======================================================
 echo.
 echo [!] Limpiando instancias previas para evitar conflictos...
-taskkill /f /fi "windowtitle eq DJANGO BACKEND*" /t 2>nul
-taskkill /f /fi "windowtitle eq REACT FRONTEND*" /t 2>nul
+taskkill /f /fi "windowtitle eq DJANGO BACKEND*" /t >nul 2>&1
+taskkill /f /fi "windowtitle eq REACT FRONTEND*" /t >nul 2>&1
 timeout /t 2 /nobreak >nul
 echo.
 
-REM Detectar IP local de la máquina
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr "IPv4" ^| findstr /V "127.0.0.1"') do (
-    set LOCAL_IP=%%a
+REM Detectar IP local de la máquina de forma robusta
+set "LOCAL_IP=127.0.0.1"
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4" ^| findstr /v "127.0.0.1"') do (
+    set "TEMP_IP=%%a"
+    set "LOCAL_IP=!TEMP_IP: =!"
 )
-set LOCAL_IP=%LOCAL_IP: =%
-echo [INFO] IP Local detectada: %LOCAL_IP%
+echo [OK] IP Local detectada: %LOCAL_IP%
 echo.
 
 echo [INFO] Verificando archivos de configuracion (.env)...
