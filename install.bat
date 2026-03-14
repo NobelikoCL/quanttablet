@@ -96,7 +96,6 @@ if %errorLevel% neq 0 (
 ) else (
     set /p NODE_NPM_VER=<nvl_node_ver.txt
     echo  [OK] Node.js/npm !NODE_NPM_VER! detectado.
-    :: Nota: npm 10+ suele venir con Node 20+
 )
 del nvl_node_ver.txt >nul 2>&1
 echo.
