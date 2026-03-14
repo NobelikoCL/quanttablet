@@ -1,5 +1,4 @@
 @echo off
-setlocal enabledelayedexpansion
 title Quant MT5 Dashboard - Launcher
 color 0A
 
@@ -7,116 +6,76 @@ echo =======================================================
 echo          INICIANDO PANEL CUANTITATIVO MT5
 echo =======================================================
 echo.
-echo [!] Limpiando instancias previas para evitar conflictos...
+
+:: 1. Limpieza de procesos
+echo [!] Limpiando instancias previas...
 taskkill /f /fi "windowtitle eq DJANGO BACKEND*" /t >nul 2>&1
 taskkill /f /fi "windowtitle eq REACT FRONTEND*" /t >nul 2>&1
 timeout /t 2 /nobreak >nul
-echo.
 
-REM Detectar IP local de la máquina de forma robusta
-set "LOCAL_IP=127.0.0.1"
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4" ^| findstr /v "127.0.0.1"') do (
-    set "TEMP_IP=%%a"
-    set "LOCAL_IP=!TEMP_IP: =!"
-)
-echo [OK] IP Local detectada: %LOCAL_IP%
-echo.
-
-echo [INFO] Verificando archivos de configuracion (.env)...
-if not exist "backend\.env" (
-    echo [INFO] Creando backend\.env con valores por defecto...
-    (
-        echo SECRET_KEY=django-insecure-quant-default-key-constant-val-123
-        echo DEBUG=False
-        echo ALLOWED_HOSTS=*
-        echo API_SECRET_KEY=quant-admin-supersecret-token-777
-        echo CORS_ALLOWED_ORIGINS=ALL
-        echo MT5_ACCOUNT=
-        echo MT5_PASSWORD=
-        echo MT5_SERVER=
-    ) > backend\.env
-    echo [OK] backend\.env creado.
-) else (
-    echo [OK] backend\.env detectado.
-)
-
-if not exist "frontend\.env.local" (
-    echo [INFO] Creando frontend\.env.local...
-    (echo VITE_API_SECRET_KEY=quant-admin-supersecret-token-777) > frontend\.env.local
-    echo [OK] frontend\.env.local creado.
-) else (
-    echo [OK] frontend\.env.local detectado.
-)
-
-echo [1] Verificando entorno Backend Django...
+:: 2. Verificación de Entorno
+echo [1] Verificando archivos...
 if not exist "backend\venv\Scripts\python.exe" (
-    echo [ERROR] No se detecta venv en Backend.
-    echo Por favor, ejecuta primero: install.bat
+    echo [ERROR] No se detecta venv en Backend. Ejecuta: install.bat
     pause
     exit /b
 )
-
 if not exist "frontend\node_modules" (
-    echo [ERROR] No se detectan los modulos de Node en Frontend.
-    echo Por favor, ejecuta primero: install.bat
+    echo [ERROR] No se detecta node_modules. Ejecuta: install.bat
     pause
     exit /b
 )
+echo [OK] Entorno verificado.
 
-echo [INFO] LOGS DETALLADOS ACTIVADOS PARA BACKEND
-echo [INFO] Guardando salida en: %CD%\quant_backend_logs.log
+:: 3. Configuración de Variables
+set LOCAL_IP=127.0.0.1
+echo [2] Detectando red...
+:: Metodo simple para IP que no rompe por idioma
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4" ^| findstr /v "127.0.0.1"') do (
+    set LOCAL_IP=%%a
+)
+:: Limpiar espacios (metodo sin delayed expansion)
+set LOCAL_IP=%LOCAL_IP: =%
+echo [OK] IP Local: %LOCAL_IP%
+
+:: 4. Arranque de Backend
 echo.
-echo [2] Ejecutando Migraciones e iniciando Django en 0.0.0.0:8000...
-set PYTHONUTF8=1
-set PYTHONUNBUFFERED=1
-:: Borrar log previo si existe para iniciar limpio
+echo [3] Iniciando Backend Django...
 if exist "quant_backend_logs.log" del "quant_backend_logs.log"
-
-:: Iniciar Backend con cmd /k para que la ventana NO se cierre si falla
-start "DJANGO BACKEND" cmd /k "cd backend && venv\Scripts\python.exe manage.py migrate && echo [%DATE% %TIME%] --- INICIO DE SERVIDOR --- >> ..\quant_backend_logs.log && echo === BACKEND ACTIVO en 0.0.0.0:8000 === && venv\Scripts\python.exe manage.py runserver 0.0.0.0:8000 2>&1 | powershell -Command \"$input | Tee-Object -FilePath '..\quant_backend_logs.log' -Append\""
-
-echo.
-echo [3] Iniciando Frontend React en 0.0.0.0:5173...
-:: Iniciar Frontend con cmd /k para persistencia
-start "REACT FRONTEND" cmd /k "cd frontend && echo === FRONTEND ACTIVO === && npm run dev"
-
-echo.
-echo [4] Esperando que el backend este listo (Verificando Health Check)...
-set /a WAIT_ATTEMPTS=0
-:wait_backend
-set /a WAIT_ATTEMPTS+=1
-if %WAIT_ATTEMPTS% gtr 30 (
-    echo [WARN] El backend tarda mas de lo esperado. Revisa la ventana "DJANGO BACKEND"
-    echo [INFO] Tambien puedes revisar el archivo: %CD%\quant_backend_logs.log
-    echo.
-    echo Abriendo navegador de todas formas...
-    goto open_browser
-)
-:: Intentar verificar salud del backend
-curl -s --max-time 2 http://localhost:8000/api/health/ > temp_health.json
-findstr /C:"\"status\"" temp_health.json >nul 2>&1
+:: Ejecutamos migraciones primero
+echo [INFO] Ejecutando migraciones...
+cd backend
+venv\Scripts\python.exe manage.py migrate > ..\quant_backend_logs.log 2>&1
 if errorlevel 1 (
-    del temp_health.json >nul 2>&1
-    echo [WAIT] Esperando backend (!WAIT_ATTEMPTS!/30)...
-    timeout /t 2 /nobreak >nul
-    goto wait_backend
+    echo [ERROR] Fallaron las migraciones. Revisa quant_backend_logs.log
+    cd ..
+    pause
+    exit /b
 )
-del temp_health.json >nul 2>&1
+cd ..
+echo [OK] Migraciones completadas.
 
-:open_browser
-echo [OK] Backend detectado y saludable. Abriendo navegador...
-start "" "http://localhost:5173"
+:: Iniciar servidor en ventana aparte (Simple, sin pipes complejos)
+start "DJANGO BACKEND" cmd /k "cd backend && venv\Scripts\python.exe manage.py runserver 0.0.0.0:8000"
 
+:: 5. Arranque de Frontend
+echo.
+echo [4] Iniciando Frontend React...
+start "REACT FRONTEND" cmd /k "cd frontend && npm run dev"
+
+:: 6. Finalización
 echo.
 echo =======================================================
 echo TODO INICIADO CORRECTAMENTE.
 echo.
-echo   Backend (API):   http://%LOCAL_IP%:8000/
-echo   Frontend (UI):   http://%LOCAL_IP%:5173/
+echo   Local:        http://localhost:5173
+echo   Red Local:    http://%LOCAL_IP%:5173
 echo.
-echo   LOGS EN TIEMPO REAL: Revisa la ventana "DJANGO BACKEND"
-echo   LOGS EN ARCHIVO:     %CD%\quant_backend_logs.log
+echo   Si el navegador no abre solo, usa los links de arriba.
 echo =======================================================
-if "%1"=="--no-pause" goto end
+echo.
+
+timeout /t 5 /nobreak >nul
+start "" "http://localhost:5173"
+
 pause
-:end
