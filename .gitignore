@@ -24,7 +24,8 @@ backend/scanner.sqlite3
 
 # Logs (pueden pesar cientos de MB)
 backend/*.log
-backend/quant_backend_logs*.log
+backend/*.log.*
+backend/quant_backend_logs*
 
 # Variables de entorno
 backend/.env
