@@ -267,6 +267,40 @@ class MT5Terminal(models.Model):
     order = models.IntegerField(default=0, help_text="Orden de display")
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # ── Datos de cuenta (cacheados tras sincronización con MT5) ──────────────
+    account_login = models.BigIntegerField(
+        null=True, blank=True,
+        help_text="Número de cuenta MT5 (login)"
+    )
+    account_server = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="Servidor del broker (ej: ICMarkets-Live)"
+    )
+    account_balance = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="Balance de la cuenta (cacheado)"
+    )
+    account_equity = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="Equity de la cuenta (cacheado)"
+    )
+    account_currency = models.CharField(
+        max_length=10, blank=True, default='USD',
+        help_text="Divisa de la cuenta"
+    )
+    account_name = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text="Nombre del titular de la cuenta"
+    )
+    account_type = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text="Tipo de cuenta: demo / real / contest"
+    )
+    last_sync_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Última vez que se sincronizaron los datos de cuenta"
+    )
+
     class Meta:
         ordering = ['order', 'id']
         verbose_name_plural = "MT5 Terminals"

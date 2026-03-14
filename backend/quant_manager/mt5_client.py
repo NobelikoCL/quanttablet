@@ -984,10 +984,24 @@ class MT5Engine:
                 terminal.is_active = True
                 terminal.save()
 
-                # Info de la cuenta conectada
+                # Info de la cuenta conectada — persistir en DB
                 acc = mt5.account_info()
                 if acc:
                     logger.info(f"[MultiTerminal] Conectado: Cuenta #{acc.login} | Balance: {acc.balance} | Server: {acc.server}")
+                    try:
+                        from django.utils import timezone as tz
+                        acc_type = 'demo' if acc.trade_mode == 0 else ('contest' if acc.trade_mode == 1 else 'real')
+                        terminal.account_login = acc.login
+                        terminal.account_server = acc.server or ''
+                        terminal.account_balance = acc.balance
+                        terminal.account_equity = acc.equity
+                        terminal.account_currency = acc.currency or 'USD'
+                        terminal.account_name = acc.name or ''
+                        terminal.account_type = acc_type
+                        terminal.last_sync_at = tz.now()
+                        terminal.save()
+                    except Exception as e:
+                        logger.warning(f"[MultiTerminal] No se pudo guardar info de cuenta: {e}")
                 else:
                     logger.warning("[MultiTerminal] Conectado pero no se pudo obtener info de cuenta.")
 
@@ -1081,6 +1095,66 @@ class MT5Engine:
                 logger.exception(f"[MultiTerminal] Error obteniendo símbolos: {str(e)}")
                 MT5Engine._reconnect_original(original_path)
                 return []
+
+    @staticmethod
+    def fetch_account_info_from_terminal(terminal_id):
+        """Conecta brevemente a una terminal para obtener sus datos de cuenta y los persiste en DB."""
+        with MT5Engine._lock:
+            original_path = MT5Engine._current_terminal_path
+            try:
+                from .models import MT5Terminal
+                from django.utils import timezone as tz
+
+                terminal = MT5Terminal.objects.get(id=terminal_id)
+                need_switch = original_path != terminal.terminal_path
+
+                if need_switch:
+                    mt5.shutdown()
+                    if not mt5.initialize(path=terminal.terminal_path):
+                        logger.error(f"[MultiTerminal] No se pudo conectar a {terminal.name} para sync de cuenta")
+                        MT5Engine._reconnect_original(original_path)
+                        return None
+
+                acc = mt5.account_info()
+                result = None
+
+                if acc:
+                    acc_type = 'demo' if acc.trade_mode == 0 else ('contest' if acc.trade_mode == 1 else 'real')
+                    terminal.account_login = acc.login
+                    terminal.account_server = acc.server or ''
+                    terminal.account_balance = acc.balance
+                    terminal.account_equity = acc.equity
+                    terminal.account_currency = acc.currency or 'USD'
+                    terminal.account_name = acc.name or ''
+                    terminal.account_type = acc_type
+                    terminal.last_sync_at = tz.now()
+                    terminal.save(update_fields=[
+                        'account_login', 'account_server', 'account_balance',
+                        'account_equity', 'account_currency', 'account_name',
+                        'account_type', 'last_sync_at',
+                    ])
+                    result = {
+                        'login': acc.login,
+                        'server': acc.server,
+                        'balance': acc.balance,
+                        'equity': acc.equity,
+                        'currency': acc.currency,
+                        'name': acc.name,
+                        'type': acc_type,
+                    }
+                    logger.info(f"[MultiTerminal] Sync cuenta OK: #{acc.login} | {acc.server} | {acc.balance} {acc.currency}")
+                else:
+                    logger.warning(f"[MultiTerminal] Conectado a {terminal.name} pero no se obtuvo info de cuenta")
+
+                if need_switch:
+                    mt5.shutdown()
+                    MT5Engine._reconnect_original(original_path)
+
+                return result
+            except Exception as e:
+                logger.exception(f"[MultiTerminal] Error en fetch_account_info_from_terminal: {str(e)}")
+                MT5Engine._reconnect_original(original_path)
+                return None
 
     @staticmethod
     def copy_trade_to_terminal(terminal_id, symbol, volume, trade_type, action='open'):

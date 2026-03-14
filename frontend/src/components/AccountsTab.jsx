@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, Plus, Trash2, RefreshCw, ArrowRightLeft, Zap, FolderOpen, Link2, AlertTriangle, Check, X, Server, Search } from 'lucide-react';
+import { Users, Plus, Trash2, RefreshCw, ArrowRightLeft, Zap, FolderOpen, Link2, AlertTriangle, Check, X, Server, Search, RotateCcw, Wallet, BadgeCheck, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import API_BASE from '../api';
 
@@ -17,6 +17,7 @@ const AccountsTab = () => {
     const [mappingData, setMappingData] = useState({ terminal_a: '', terminal_b: '', symbol_a: '', symbol_b: '' });
     const [scanning, setScanning] = useState(false);
     const [scannedTerminals, setScannedTerminals] = useState(null);
+    const [syncingId, setSyncingId] = useState(null);
 
     // Fetch terminales registradas
     const fetchTerminals = useCallback(async () => {
@@ -119,6 +120,25 @@ const AccountsTab = () => {
             });
             if (res.ok) { toast.success('Terminal eliminada'); fetchTerminals(); }
         } catch { toast.error('Error eliminando'); }
+    };
+
+    // Sincronizar datos de cuenta de una terminal
+    const handleSync = async (id, name) => {
+        setSyncingId(id);
+        try {
+            const res = await fetch(`${API_BASE}/api/terminals/${id}/sync/`, {
+                method: 'POST',
+                headers: { 'X-API-KEY': API_KEY }
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                toast.success(`${name}: #${data.account?.login} | ${data.account?.server}`);
+                fetchTerminals();
+            } else {
+                toast.error(data.error || 'No se pudo sincronizar. ¿Está la terminal MT5 abierta?');
+            }
+        } catch { toast.error('Error de conexión'); }
+        setSyncingId(null);
     };
 
     // Activar terminal
@@ -329,37 +349,91 @@ const AccountsTab = () => {
                     <div className="text-center py-8 text-slate-500">
                         <FolderOpen className="w-10 h-10 mx-auto mb-2 opacity-50" />
                         <p className="text-sm">No hay terminales registradas</p>
-                        <p className="text-xs mt-1">Agrega la ruta a tu terminal64.exe para empezar</p>
+                        <p className="text-xs mt-1">Usa "Detectar MT5" o agrega la ruta manualmente</p>
                     </div>
                 ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                         {terminals.map(t => (
-                            <div key={t.id} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${t.is_active
+                            <div key={t.id} className={`rounded-xl border transition-all ${t.is_active
                                 ? 'bg-violet-500/10 border-violet-500/30'
                                 : 'bg-black/20 border-slate-700 hover:border-slate-600'
-                                }`}>
-                                <div className="flex items-center gap-3 min-w-0 flex-1">
-                                    <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${t.is_active ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-bold text-white truncate">{t.name}
-                                            {t.is_default && <span className="ml-2 text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold">DEFAULT</span>}
-                                            {t.is_active && <span className="ml-2 text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-bold">ACTIVA</span>}
-                                        </p>
-                                        <p className="text-[10px] text-slate-500 truncate font-mono">{t.terminal_path}</p>
+                            }`}>
+                                {/* Fila principal */}
+                                <div className="flex items-center justify-between p-3">
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${t.is_active ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <p className="text-sm font-bold text-white truncate">{t.name}</p>
+                                                {t.is_default && <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold">DEFAULT</span>}
+                                                {t.is_active && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-bold">ACTIVA</span>}
+                                                {t.account_type && (
+                                                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                                                        t.account_type === 'demo' ? 'bg-sky-500/20 text-sky-400'
+                                                        : t.account_type === 'real' ? 'bg-emerald-500/20 text-emerald-400'
+                                                        : 'bg-slate-500/20 text-slate-400'
+                                                    }`}>{t.account_type}</span>
+                                                )}
+                                            </div>
+                                            <p className="text-[10px] text-slate-500 truncate font-mono mt-0.5">{t.terminal_path}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                                        <button
+                                            onClick={() => handleSync(t.id, t.name)}
+                                            disabled={syncingId === t.id}
+                                            title="Sincronizar datos de cuenta"
+                                            className="p-1.5 text-slate-500 hover:text-brand-accent transition-colors disabled:opacity-40"
+                                        >
+                                            <RotateCcw className={`w-3.5 h-3.5 ${syncingId === t.id ? 'animate-spin' : ''}`} />
+                                        </button>
+                                        {!t.is_active && (
+                                            <button onClick={() => handleActivate(t.id)}
+                                                className="px-2.5 py-1.5 text-[10px] bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 rounded-lg font-bold transition-all">
+                                                Activar
+                                            </button>
+                                        )}
+                                        <button onClick={() => handleDelete(t.id, t.name)}
+                                            className="p-1.5 text-slate-500 hover:text-red-400 transition-colors">
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-1.5 flex-shrink-0">
-                                    {!t.is_active && (
-                                        <button onClick={() => handleActivate(t.id)}
-                                            className="px-2.5 py-1.5 text-[10px] bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 rounded-lg font-bold transition-all">
-                                            Activar
+
+                                {/* Datos de cuenta (si están sincronizados) */}
+                                {t.account_login ? (
+                                    <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                        <div className="bg-black/30 rounded-lg px-2.5 py-2">
+                                            <p className="text-[9px] text-slate-500 uppercase font-bold mb-0.5">Cuenta</p>
+                                            <p className="text-xs font-mono font-bold text-white">#{t.account_login}</p>
+                                        </div>
+                                        <div className="bg-black/30 rounded-lg px-2.5 py-2">
+                                            <p className="text-[9px] text-slate-500 uppercase font-bold mb-0.5">Servidor</p>
+                                            <p className="text-xs font-mono text-slate-300 truncate" title={t.account_server}>{t.account_server || '—'}</p>
+                                        </div>
+                                        <div className="bg-black/30 rounded-lg px-2.5 py-2">
+                                            <p className="text-[9px] text-slate-500 uppercase font-bold mb-0.5">Balance</p>
+                                            <p className="text-xs font-mono font-bold text-emerald-400">
+                                                {t.account_balance != null ? `${parseFloat(t.account_balance).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${t.account_currency}` : '—'}
+                                            </p>
+                                        </div>
+                                        <div className="bg-black/30 rounded-lg px-2.5 py-2">
+                                            <p className="text-[9px] text-slate-500 uppercase font-bold mb-0.5">Titular</p>
+                                            <p className="text-xs text-slate-300 truncate" title={t.account_name}>{t.account_name || '—'}</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="px-3 pb-3">
+                                        <button
+                                            onClick={() => handleSync(t.id, t.name)}
+                                            disabled={syncingId === t.id}
+                                            className="flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-brand-accent transition-colors disabled:opacity-40"
+                                        >
+                                            <RotateCcw className={`w-3 h-3 ${syncingId === t.id ? 'animate-spin' : ''}`} />
+                                            {syncingId === t.id ? 'Sincronizando...' : 'Sincronizar datos de cuenta'}
                                         </button>
-                                    )}
-                                    <button onClick={() => handleDelete(t.id, t.name)}
-                                        className="p-1.5 text-slate-500 hover:text-red-400 transition-colors">
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                </div>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>

@@ -5,9 +5,9 @@ from .views import (
     HistoryView, PerformanceMetricsView, EquityHistoryView, ClosePositionsBySymbolView, SymbolProfitTargetView,
     MarketWatchSignalsView, MarketWatchSettingsView, ClosePositionsByDirectionView,
     CloseWinningPositionsBySymbolView, SessionAssetsView,
-    MT5TerminalListView, MT5TerminalDetailView, TerminalPositionsView,
+    MT5TerminalListView, MT5TerminalDetailView, MT5TerminalSyncView, TerminalPositionsView,
     CopyTradeView, SymbolMappingView, TerminalSymbolsView,
-    EconomicCalendarView, MacroNewsView, HealthView, MT5ScanView
+    EconomicCalendarView, MacroNewsView, HealthView, MT5ScanView, MT5SetupView
 )
 
 urlpatterns = [
@@ -36,8 +36,10 @@ urlpatterns = [
 
     # Multi-Terminal
     path('api/terminals/scan/', MT5ScanView.as_view(), name='terminal_scan'),
+    path('api/terminals/setup/', MT5SetupView.as_view(), name='terminal_setup'),
     path('api/terminals/', MT5TerminalListView.as_view(), name='terminal_list'),
     path('api/terminals/<int:terminal_id>/', MT5TerminalDetailView.as_view(), name='terminal_detail'),
+    path('api/terminals/<int:terminal_id>/sync/', MT5TerminalSyncView.as_view(), name='terminal_sync'),
     path('api/terminals/positions/', TerminalPositionsView.as_view(), name='terminal_positions'),
     path('api/terminals/<int:terminal_id>/symbols/', TerminalSymbolsView.as_view(), name='terminal_symbols'),
     path('api/terminals/copy-trade/', CopyTradeView.as_view(), name='copy_trade'),

@@ -30,6 +30,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import RiskSettingsForm from './components/RiskSettingsForm';
+import MT5SelectionModal from './components/MT5SelectionModal';
 const DashboardTab = React.lazy(() => import('./components/DashboardTab'));
 const MarketWatchTab = React.lazy(() => import('./components/MarketWatchTab'));
 const HistoryTab = React.lazy(() => import('./components/HistoryTab'));
@@ -460,6 +461,34 @@ function App() {
   const backoffIntervalRef = useRef(null);
   const backoffDelayRef = useRef(5000);
 
+  // Modal de selección de terminal MT5 al iniciar
+  const [showMT5Modal, setShowMT5Modal] = useState(false);
+  const [appReady, setAppReady] = useState(false);
+
+  // Verificar al iniciar si hay terminales configuradas
+  useEffect(() => {
+    axios.get(`${API_BASE}/api/health/`)
+      .then(({ data }) => {
+        if (!data.terminals_configured) {
+          setShowMT5Modal(true);
+        } else {
+          setAppReady(true);
+        }
+      })
+      .catch(() => {
+        // Health falló — verificar terminales directamente
+        axios.get(`${API_BASE}/api/terminals/`)
+          .then(({ data }) => {
+            if (!data || data.length === 0) {
+              setShowMT5Modal(true);
+            } else {
+              setAppReady(true);
+            }
+          })
+          .catch(() => setAppReady(true));
+      });
+  }, []);
+
   // Sincronizar settings locales cada vez que se vuelve a ver la pestaña o cada cierto tiempo
   useEffect(() => {
     const handleStorageChange = () => setLocalSettings(getLocalSettings());
@@ -797,6 +826,16 @@ function App() {
   return (
     <div className="min-h-screen bg-dark-bg text-slate-200">
       <Toaster position="top-right" />
+
+      {/* Modal de selección de terminal MT5 al primer inicio */}
+      {showMT5Modal && (
+        <MT5SelectionModal
+          onComplete={() => {
+            setShowMT5Modal(false);
+            setAppReady(true);
+          }}
+        />
+      )}
 
       {/* TopBar optimizada — siempre en una fila */}
       <header className="glass sticky top-2 mx-2 lg:mx-4 mt-2 lg:mt-4 rounded-2xl z-50 shadow-2xl">

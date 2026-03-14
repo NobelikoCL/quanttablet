@@ -391,9 +391,15 @@ class MT5TerminalListView(APIView):
         from .serializers import MT5TerminalSerializer
         serializer = MT5TerminalSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            logger.info(f"[Terminals] Nueva terminal creada: {serializer.data['name']} → {serializer.data['terminal_path']}")
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            terminal = serializer.save()
+            logger.info(f"[Terminals] Nueva terminal creada: {terminal.name} → {terminal.terminal_path}")
+            # Intentar sincronizar datos de cuenta en background (no bloquear si falla)
+            try:
+                MT5Engine.fetch_account_info_from_terminal(terminal.id)
+                terminal.refresh_from_db()
+            except Exception as e:
+                logger.warning(f"[Terminals] No se pudo sincronizar cuenta al crear: {e}")
+            return Response(MT5TerminalSerializer(terminal).data, status=status.HTTP_201_CREATED)
         logger.error(f"[Terminals] Error creando terminal: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -428,8 +434,15 @@ class MT5TerminalDetailView(APIView):
 
     def post(self, request, terminal_id):
         """Activar esta terminal como la actual."""
+        from .models import MT5Terminal
+        from .serializers import MT5TerminalSerializer
         success = MT5Engine.switch_terminal(terminal_id)
         if success:
+            try:
+                terminal = MT5Terminal.objects.get(id=terminal_id)
+                return Response({"message": "Terminal activada correctamente", "terminal": MT5TerminalSerializer(terminal).data})
+            except MT5Terminal.DoesNotExist:
+                pass
             return Response({"message": "Terminal activada correctamente"})
         return Response({"error": "No se pudo activar la terminal"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -694,52 +707,189 @@ class EconomicCalendarView(APIView):
 class MT5ScanView(APIView):
     """Escanea el PC buscando instalaciones de MetaTrader 5 (terminal64.exe)."""
 
+    TARGET = 'terminal64.exe'
+    MAX_DEPTH = 4  # profundidad máxima de búsqueda dentro de cada raíz
+
+    @staticmethod
+    def _walk_limited(root, max_depth):
+        """os.walk con límite de profundidad para no recorrer el disco entero."""
+        root = os.path.normpath(root)
+        base_depth = root.count(os.sep)
+        for dirpath, dirnames, filenames in os.walk(root):
+            current_depth = dirpath.count(os.sep) - base_depth
+            if current_depth >= max_depth:
+                dirnames.clear()  # no bajar más
+            yield dirpath, filenames
+
     def get(self, request):
         found = []
-        seen = set()
+        seen = set()  # paths normalizados en minúsculas para deduplicar en Windows
 
-        # Rutas de Program Files (profundidad 1 y 2)
-        pf_roots = [
-            os.environ.get('PROGRAMFILES', r'C:\Program Files'),
-            os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'),
-            r'C:\MT5', r'C:\MT4',
-        ]
-        for root in pf_roots:
-            if not root or not os.path.isdir(root):
-                continue
-            for pattern in [
-                os.path.join(root, '*', 'terminal64.exe'),
-                os.path.join(root, '*', '*', 'terminal64.exe'),
-            ]:
-                for exe_path in glob.glob(pattern):
-                    if exe_path in seen:
-                        continue
-                    seen.add(exe_path)
-                    broker = os.path.basename(os.path.dirname(exe_path))
-                    found.append({'path': exe_path, 'broker': broker})
-
-        # Rutas de AppData (MetaQuotes data folders)
+        # ── 1. MetaQuotes AppData — el método más fiable ──────────────────────
+        # MT5 siempre registra en %APPDATA%\MetaQuotes\Terminal\<HASH>\origin.txt
+        # apuntando al directorio de instalación real, sin importar en qué disco esté.
         appdata = os.environ.get('APPDATA', '')
         mq_root = os.path.join(appdata, 'MetaQuotes', 'Terminal')
         if os.path.isdir(mq_root):
             for hash_folder in os.listdir(mq_root):
-                hash_path = os.path.join(mq_root, hash_folder)
-                origin_file = os.path.join(hash_path, 'origin.txt')
+                origin_file = os.path.join(mq_root, hash_folder, 'origin.txt')
                 if not os.path.isfile(origin_file):
                     continue
                 try:
-                    with open(origin_file, encoding='utf-8', errors='ignore') as f:
-                        install_path = f.read().strip()
-                    exe_path = os.path.join(install_path, 'terminal64.exe') if not install_path.lower().endswith('.exe') else install_path
-                    if os.path.isfile(exe_path) and exe_path not in seen:
-                        seen.add(exe_path)
-                        broker = os.path.basename(os.path.dirname(exe_path))
-                        found.append({'path': exe_path, 'broker': broker})
+                    # origin.txt puede ser UTF-16 LE con BOM en versiones recientes
+                    install_path = None
+                    for enc in ('utf-16', 'utf-8', 'latin-1'):
+                        try:
+                            with open(origin_file, encoding=enc, errors='strict') as f:
+                                install_path = f.read().strip().strip('\x00')
+                            if install_path:
+                                break
+                        except Exception:
+                            continue
+                    if not install_path:
+                        continue
+                    exe_path = install_path if install_path.lower().endswith('.exe') \
+                        else os.path.join(install_path, self.TARGET)
+                    if not os.path.isfile(exe_path):
+                        continue
+                    key = exe_path.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    found.append({
+                        'path': exe_path,
+                        'broker': os.path.basename(os.path.dirname(exe_path)),
+                        'folder': os.path.dirname(exe_path),
+                    })
                 except Exception:
                     pass
 
+        # ── 2. Búsqueda recursiva en C:\Program Files ─────────────────────────
+        # MT5 se instala por defecto aquí. Profundidad 3 es suficiente:
+        # C:\Program Files\<BrokerName MT5>\terminal64.exe  → nivel 2
+        for pf_var in ('PROGRAMFILES', 'PROGRAMFILES(X86)'):
+            pf = os.environ.get(pf_var, '')
+            if not pf or not os.path.isdir(pf):
+                continue
+            for dirpath, filenames in self._walk_limited(pf, max_depth=3):
+                for fname in filenames:
+                    if fname.lower() != self.TARGET:
+                        continue
+                    exe_path = os.path.join(dirpath, fname)
+                    key = exe_path.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    found.append({
+                        'path': exe_path,
+                        'broker': os.path.basename(dirpath),
+                        'folder': dirpath,
+                    })
+
         logger.info(f"[MT5 Scan] {len(found)} terminal(es) encontrada(s) en el PC")
         return Response({'terminals': found})
+
+
+# --- MT5 INITIAL SETUP ---
+
+class MT5SetupView(APIView):
+    """
+    Configura las terminales MT5 al iniciar el proyecto.
+    POST: recibe lista de terminales a registrar y cuál activar.
+    """
+
+    def post(self, request):
+        from .models import MT5Terminal
+        from .serializers import MT5TerminalSerializer
+
+        terminals_data = request.data.get('terminals', [])   # [{path, broker/name}]
+        active_path = request.data.get('active_path', None)  # path de la terminal activa
+        mode = request.data.get('mode', 'single')            # 'single' | 'all'
+
+        if not terminals_data:
+            return Response({'error': 'Debes seleccionar al menos una terminal.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        created = []
+        errors = []
+
+        # Obtener rutas ya registradas para no duplicar
+        existing_paths = set(MT5Terminal.objects.values_list('terminal_path', flat=True))
+
+        for i, t in enumerate(terminals_data):
+            path = t.get('path', '').strip()
+            broker = t.get('broker') or t.get('name') or f'Terminal {i + 1}'
+            if not path:
+                continue
+            if path in existing_paths:
+                # Ya existe, solo recuperarla
+                terminal = MT5Terminal.objects.get(terminal_path=path)
+                created.append(terminal)
+                continue
+            try:
+                terminal = MT5Terminal(
+                    name=broker,
+                    terminal_path=path,
+                    is_default=(i == 0),
+                    is_active=False,
+                    order=i,
+                )
+                terminal.save()
+                created.append(terminal)
+                existing_paths.add(path)
+            except Exception as e:
+                errors.append({'path': path, 'error': str(e)})
+
+        if not created:
+            return Response({'error': 'No se pudo registrar ninguna terminal.', 'details': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Determinar cuál activar
+        target_path = active_path if active_path else created[0].terminal_path
+        target = next((t for t in created if t.terminal_path == target_path), created[0])
+
+        # Activar via switch_terminal (reconecta MT5)
+        switched = MT5Engine.switch_terminal(target.id)
+        if not switched:
+            # Intentar initialize directo si switch falla (primera vez)
+            target.is_active = True
+            target.save()
+            MT5Engine.initialize(path=target.terminal_path)
+
+        # Refrescar desde DB para incluir account_login/server guardados en switch_terminal
+        target.refresh_from_db()
+        logger.info(f"[MT5 Setup] {len(created)} terminal(es) configurada(s). Activa: {target.name} #{target.account_login}")
+        return Response({
+            'configured': len(created),
+            'active': MT5TerminalSerializer(target).data,
+            'errors': errors,
+        }, status=status.HTTP_200_OK)
+
+
+# --- MT5 TERMINAL SYNC ---
+
+class MT5TerminalSyncView(APIView):
+    """Sincroniza los datos de cuenta de una terminal específica (balance, login, server, etc.)."""
+
+    def post(self, request, terminal_id):
+        from .models import MT5Terminal
+        from .serializers import MT5TerminalSerializer
+        try:
+            terminal = MT5Terminal.objects.get(id=terminal_id)
+        except MT5Terminal.DoesNotExist:
+            return Response({"error": "Terminal no encontrada"}, status=status.HTTP_404_NOT_FOUND)
+
+        result = MT5Engine.fetch_account_info_from_terminal(terminal_id)
+        if result:
+            terminal.refresh_from_db()
+            logger.info(f"[TerminalSync] Terminal '{terminal.name}' sincronizada: #{result.get('login')} | {result.get('server')}")
+            return Response({
+                "success": True,
+                "account": result,
+                "terminal": MT5TerminalSerializer(terminal).data,
+            })
+        return Response(
+            {"error": "No se pudo obtener info de cuenta. Asegúrate de que la terminal MT5 está abierta y conectada."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 # --- HEALTH CHECK ---
@@ -749,19 +899,19 @@ class HealthView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        from .scanner import MarketWatchScanner  # noqa: import diferido para evitar ciclo
         try:
-            mt5_connected = MT5Engine.get_account_info() is not None
-        except Exception:
-            mt5_connected = False
-
-        try:
+            from .scanner import MarketWatchScanner  # noqa: import diferido para evitar ciclo
             scanner_running = (
                 MarketWatchScanner._scanner_thread is not None and
                 MarketWatchScanner._scanner_thread.is_alive()
             )
         except Exception:
             scanner_running = False
+
+        try:
+            mt5_connected = MT5Engine.get_account_info() is not None
+        except Exception:
+            mt5_connected = False
 
         last_signal = MarketWatchSignal.objects.order_by('-last_update').first()
         db_ok = True
@@ -771,11 +921,15 @@ class HealthView(APIView):
         except Exception:
             db_ok = False
 
+        from .models import MT5Terminal
+        terminals_configured = MT5Terminal.objects.count() > 0
+
         return Response({
             'status': 'ok' if (mt5_connected and db_ok) else 'degraded',
             'mt5_connected': mt5_connected,
             'scanner_running': scanner_running,
             'db_ok': db_ok,
+            'terminals_configured': terminals_configured,
             'last_signal_at': last_signal.last_update.isoformat() if last_signal else None,
             'timestamp': timezone.now().isoformat(),
         })
