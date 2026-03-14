@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 :: Fijar directorio de trabajo al lugar donde esta este script
 cd /d "%~dp0"
 
-title Quant MT5 Dashboard - Instalador
+title Quant MT5 Dashboard - Instalador Profesional
 
 :: ============================================================
 :: PASO 0: AUTO-ELEVACION A ADMINISTRADOR (UAC)
@@ -17,7 +17,6 @@ if %errorLevel% neq 0 (
     echo.
     echo  Se necesitan permisos de Administrador.
     echo  Se abrira una nueva ventana con privilegios elevados.
-    echo  Acepta el dialogo de Windows cuando aparezca.
     echo.
     powershell -Command "Start-Process cmd.exe -ArgumentList '/k cd /d ""%~dp0"" && ""%~f0""' -Verb RunAs"
     exit /b
@@ -26,9 +25,9 @@ if %errorLevel% neq 0 (
 :: ============================================================
 :: ENCABEZADO
 :: ============================================================
+color 0F
 echo =======================================================
-echo    QUANT MT5 DASHBOARD - INSTALADOR v1.0
-echo    Permisos de Administrador: OK
+echo    QUANT MT5 DASHBOARD - INSTALADOR v1.1
 echo =======================================================
 echo.
 
@@ -47,95 +46,59 @@ if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
     echo  [WARN] Arquitectura no reconocida: %PROCESSOR_ARCHITECTURE%
 )
 
+:: Verificar Internet
 ping -n 1 -w 2000 8.8.8.8 >nul 2>&1
 if %errorLevel% neq 0 (
     echo  [WARN] Sin conexion a internet detectada.
-    echo         Si Python y Node ya estan instalados puedes continuar.
-    echo         Presiona cualquier tecla para continuar o cierra si quieres
-    echo         conectarte primero...
-    pause >nul
 ) else (
     echo  [OK] Conexion a internet disponible.
 )
 echo.
 
 :: ============================================================
-:: PASO 2: VERIFICAR / INSTALAR PYTHON
+:: PASO 2: VERIFICAR / INSTALAR PYTHON (Min 3.10)
 :: ============================================================
 echo [1/5] Comprobando Python...
-python --version >nul 2>&1
-if %errorLevel% neq 0 (
-    echo  [INFO] Python no encontrado. Descargando Python 3.13...
-    echo         Espera, esto puede tardar varios minutos...
-    echo.
-    powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.13.1/python-3.13.1-amd64.exe' -OutFile '%TEMP%\python_installer.exe' -UseBasicParsing"
-    if not exist "%TEMP%\python_installer.exe" (
-        echo.
-        echo  [ERROR] No se pudo descargar Python automaticamente.
-        echo.
-        echo  INSTALACION MANUAL:
-        echo  1. Abre: https://www.python.org/downloads/
-        echo  2. Descarga Python 3.13 para Windows (64-bit)
-        echo  3. IMPORTANTE: Marca "Add python.exe to PATH"
-        echo  4. Cierra esta ventana y vuelve a ejecutar install.bat
-        echo.
-        set /a INSTALL_ERRORS+=1
-        goto :SUMMARY
-    )
-    echo  [INFO] Instalando Python 3.13...
-    start /wait "" "%TEMP%\python_installer.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_test=0 Include_launcher=1
-    del "%TEMP%\python_installer.exe" >nul 2>&1
-    echo  [OK] Python instalado.
-    echo.
-    echo  IMPORTANTE: Cierra esta ventana y vuelve a ejecutar install.bat
-    echo  para que el sistema reconozca Python en el PATH.
-    echo.
-    goto :SUMMARY
+python --version >nvl_py_ver.txt 2>&1
+set /p PY_RAW=<nvl_py_ver.txt
+del nvl_py_ver.txt >nul 2>&1
+
+if "%PY_RAW%"=="" (
+    echo  [INFO] Python no encontrado en el sistema.
+    call :INSTALL_PYTHON
 ) else (
-    for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PY_VER=%%v
+    for /f "tokens=2" %%v in ("%PY_RAW%") do set PY_VER=%%v
     echo  [OK] Python !PY_VER! detectado.
     
-    :: Asegurar que venv esté disponible
-    python -m pip install --user --upgrade pip >nul 2>&1
+    :: Validacion de version simple (solo primer digito y segundo)
+    for /f "tokens=1,2 delims=." %%a in ("!PY_VER!") do (
+        set PY_MAJOR=%%a
+        set PY_MINOR=%%b
+    )
+    if !PY_MAJOR! LSS 3 (
+        echo  [ERROR] Se requiere Python 3.10 o superior. Tu version es muy antigua.
+        call :INSTALL_PYTHON
+    ) else if !PY_MAJOR! EQU 3 if !PY_MINOR! LSS 10 (
+        echo  [ERROR] Se requiere Python 3.10 o superior. Detectado 3.!PY_MINOR!
+        call :INSTALL_PYTHON
+    )
 )
 echo.
 
 :: ============================================================
-:: PASO 3: VERIFICAR / INSTALAR NODE.JS
+:: PASO 3: VERIFICAR / INSTALAR NODE.JS (Min 20)
 :: ============================================================
 echo [2/5] Comprobando Node.js...
-call npm --version >nul 2>&1
+call npm --version >nvl_node_ver.txt 2>&1
 if %errorLevel% neq 0 (
-    echo  [INFO] Node.js no encontrado. Descargando Node.js v20 LTS...
-    echo         Espera, esto puede tardar varios minutos...
-    echo.
-    powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://nodejs.org/dist/v20.18.1/node-v20.18.1-x64.msi' -OutFile '%TEMP%\node_installer.msi' -UseBasicParsing"
-    if not exist "%TEMP%\node_installer.msi" (
-        echo.
-        echo  [ERROR] No se pudo descargar Node.js automaticamente.
-        echo.
-        echo  INSTALACION MANUAL:
-        echo  1. Abre: https://nodejs.org/
-        echo  2. Descarga la version LTS
-        echo  3. Instala con opciones por defecto
-        echo  4. Cierra esta ventana y vuelve a ejecutar install.bat
-        echo.
-        set /a INSTALL_ERRORS+=1
-        goto :SUMMARY
-    )
-    echo  [INFO] Instalando Node.js v20 LTS...
-    start /wait msiexec.exe /i "%TEMP%\node_installer.msi" /quiet /qn /norestart ADDLOCAL=ALL
-    del "%TEMP%\node_installer.msi" >nul 2>&1
-    echo  [OK] Node.js instalado.
-    echo.
-    echo  IMPORTANTE: Cierra esta ventana y vuelve a ejecutar install.bat
-    echo  para que el sistema reconozca Node.js en el PATH.
-    echo.
-    goto :SUMMARY
+    echo  [INFO] Node.js no encontrado.
+    call :INSTALL_NODE
 ) else (
-    for /f %%v in ('npm --version 2^>^&1') do set NODE_VER=%%v
-    echo  [OK] Node.js detectado. npm v!NODE_VER!
+    set /p NODE_NPM_VER=<nvl_node_ver.txt
+    echo  [OK] Node.js/npm !NODE_NPM_VER! detectado.
+    :: Nota: npm 10+ suele venir con Node 20+
 )
+del nvl_node_ver.txt >nul 2>&1
 echo.
 
 :: ============================================================
@@ -144,7 +107,7 @@ echo.
 echo [Config] Verificando archivos de entorno...
 
 if not exist "backend\.env" (
-    echo  [INFO] Creando backend\.env con valores por defecto...
+    echo  [INFO] Creando backend\.env...
     (
         echo SECRET_KEY=django-insecure-quant-default-key-change-in-production-!!
         echo DEBUG=False
@@ -175,10 +138,10 @@ echo.
 echo [3/5] Configurando entorno virtual Python...
 
 if not exist "backend\venv\Scripts\python.exe" (
-    echo  [INFO] Creando entorno virtual...
+    echo  [INFO] Creando entorno virtual en backend\venv...
     python -m venv backend\venv
-    if %errorLevel% neq 0 (
-        echo  [ERROR] No se pudo crear el entorno virtual.
+    if !errorLevel! neq 0 (
+        echo  [ERROR] No se pudo crear el venv. Asegurate de que Python este bien instalado.
         set /a INSTALL_ERRORS+=1
         goto :SUMMARY
     )
@@ -187,22 +150,16 @@ if not exist "backend\venv\Scripts\python.exe" (
     echo  [OK] Entorno virtual ya existe.
 )
 
-echo  [INFO] Actualizando pip...
+echo  [INFO] Actualizando pip e instalando dependencias (requirements.txt)...
 "backend\venv\Scripts\python.exe" -m pip install --upgrade pip -q
-echo  [OK] pip actualizado.
-
-echo  [INFO] Instalando dependencias backend (puede tardar unos minutos)...
-echo.
 "backend\venv\Scripts\python.exe" -m pip install -r "backend\requirements.txt"
-if %errorLevel% neq 0 (
+if !errorLevel! neq 0 (
     echo.
-    echo  [ERROR] Fallo la instalacion de requirements.txt
+    echo  [ERROR] Fallo la instalacion de dependencias del backend.
     set /a INSTALL_ERRORS+=1
     goto :SUMMARY
 )
-echo.
-echo  [OK] Dependencias backend instaladas.
-echo  [LOG] Verificando requisitos minimos...
+echo  [OK] Backend listo.
 echo.
 
 :: ============================================================
@@ -211,98 +168,94 @@ echo.
 echo [4/5] Configurando base de datos Django...
 set PYTHONUTF8=1
 "backend\venv\Scripts\python.exe" backend\manage.py migrate
-if %errorLevel% neq 0 (
-    echo  [ERROR] Fallaron las migraciones Django.
+if !errorLevel! neq 0 (
+    echo  [ERROR] Fallaron las migraciones. Revisa si hay errores arriba.
     set /a INSTALL_ERRORS+=1
 ) else (
-    echo  [OK] Base de datos lista.
+    echo  [OK] Base de datos configurada.
 )
 echo.
 
 :: ============================================================
 :: PASO 7: DEPENDENCIAS FRONTEND
 :: ============================================================
-echo [5/5] Instalando dependencias frontend (React + Vite)...
-echo       Puede tardar 1-3 minutos la primera vez...
-echo.
-pushd frontend
-call npm install
-set NPM_EXIT=%errorLevel%
-popd
-
-if %NPM_EXIT% neq 0 (
-    echo.
-    echo  [ERROR] Fallo npm install.
-    echo  Intenta manualmente: cd frontend ^&^& npm install
-    set /a INSTALL_ERRORS+=1
-    goto :SUMMARY
+echo [5/5] Instalando dependencias frontend (React)...
+if not exist "frontend\node_modules" (
+    echo  [INFO] Ejecutando npm install en la carpeta frontend...
+    pushd frontend
+    call npm install
+    if !errorLevel! neq 0 (
+        echo  [ERROR] Fallo npm install. Prueba manualmente en la carpeta frontend.
+        set /a INSTALL_ERRORS+=1
+    ) else (
+        echo  [OK] Frontend instalado.
+    )
+    popd
+) else (
+    echo  [OK] Modulos de Node ya existen ^(saltando npm install^).
 )
 echo.
-echo  [OK] Dependencias frontend instaladas.
-echo.
-
-:: ============================================================
-:: VERIFICACION FINAL
-:: ============================================================
-echo =======================================================
-echo  VERIFICACION FINAL
-echo =======================================================
-echo.
-
-"backend\venv\Scripts\python.exe" -c "import django; print('  [OK] Django', django.__version__)"
-if %errorLevel% neq 0 ( echo  [ERROR] Django no disponible. & set /a INSTALL_ERRORS+=1 )
-
-"backend\venv\Scripts\python.exe" -c "import rest_framework; print('  [OK] DRF', rest_framework.__version__)"
-if %errorLevel% neq 0 ( echo  [ERROR] DRF no disponible. & set /a INSTALL_ERRORS+=1 )
-
-"backend\venv\Scripts\python.exe" -c "import pandas as pd, numpy as np; print('  [OK] pandas', pd.__version__, '/ numpy', np.__version__)"
-if %errorLevel% neq 0 ( echo  [ERROR] pandas/numpy no disponibles. & set /a INSTALL_ERRORS+=1 )
-
-"backend\venv\Scripts\python.exe" -c "import MetaTrader5; print('  [OK] MetaTrader5 disponible')" 2>nul
-if %errorLevel% neq 0 (
-    echo  [WARN] MetaTrader5 no detectado. Instala la plataforma MT5 desde tu broker.
-    echo         El dashboard funciona sin MT5 pero sin datos de trading en vivo.
-)
-
-if exist "backend\db.sqlite3" ( echo  [OK] Base de datos presente. ) else ( echo  [WARN] db.sqlite3 no encontrada. )
-if exist "frontend\node_modules\vite" ( echo  [OK] Frontend: Vite listo. ) else ( echo  [WARN] node_modules podria estar incompleto. )
 
 :: ============================================================
 :: RESUMEN FINAL
 :: ============================================================
 :SUMMARY
-echo.
 echo =======================================================
-
 if %INSTALL_ERRORS% equ 0 (
     color 0A
     echo.
-    echo   INSTALACION COMPLETADA CON EXITO
+    echo   ¡INSTALACION COMPLETADA EXITOSAMENTE!
     echo.
-    echo   Para iniciar el panel ejecuta:
+    echo   Ahora puedes iniciar el dashboard con: start.bat
     echo.
-    echo        ---^>  start.bat  ^<---
-    echo.
-    echo   Puedes editar backend\.env para configurar tu cuenta
-    echo   MT5 (MT5_ACCOUNT, MT5_PASSWORD, MT5_SERVER).
-    echo.
-    echo =======================================================
-    echo.
-    echo   Todo listo. Presiona cualquier tecla para cerrar...
 ) else (
     color 0C
     echo.
-    echo   INSTALACION FINALIZADA CON %INSTALL_ERRORS% ERROR(ES)
+    echo   INSTALACION FINALIZADA CON %INSTALL_ERRORS% PROBLEMAS
     echo.
-    echo   Revisa los mensajes [ERROR] mostrados arriba.
-    echo   Soluciones comunes:
-    echo     - Sin internet: conectate y vuelve a ejecutar
-    echo     - Python/Node recien instalados: cierra y vuelve a abrir
-    echo     - requirements.txt: revisa backend\requirements.txt
-    echo.
-    echo =======================================================
-    echo.
-    echo   Presiona cualquier tecla para cerrar...
+    echo   Revisa los mensajes [ERROR] arriba. 
+    echo   Si instalaste Python/Node ahora, REINICIA esta ventana.
 )
-pause >nul
-endlocal
+echo =======================================================
+pause
+exit /b
+
+:: ============================================================
+:: FUNCIONES DE INSTALACION
+:: ============================================================
+
+:INSTALL_PYTHON
+echo  [INFO] Iniciando descarga de Python 3.13.1...
+set "PY_DL_URL=https://www.python.org/ftp/python/3.13.1/python-3.13.1-amd64.exe"
+set "PY_TEMP=%TEMP%\py_inst_quant.exe"
+powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object System.Net.WebClient).DownloadFile('%PY_DL_URL%', '%PY_TEMP%')"
+if not exist "%PY_TEMP%" (
+    echo  [ERROR] No se pudo descargar Python. Por favor instalalo manualmente:
+    echo  https://www.python.org/downloads/ (MARCA 'ADD TO PATH')
+    set /a INSTALL_ERRORS+=1
+    exit /b
+)
+echo  [INFO] Ejecutando instalador de Python... (Sigue los pasos en pantalla)
+start /wait "" "%PY_TEMP%"
+del "%PY_TEMP%" >nul 2>&1
+echo  [IMPORTANT] CIERRA ESTA VENTANA Y VUELVE A EJECUTAR install.bat
+pause
+exit
+
+:INSTALL_NODE
+echo  [INFO] Iniciando descarga de Node.js v20 LTS...
+set "NODE_DL_URL=https://nodejs.org/dist/v20.18.1/node-v20.18.1-x64.msi"
+set "NODE_TEMP=%TEMP%\node_inst_quant.msi"
+powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object System.Net.WebClient).DownloadFile('%NODE_DL_URL%', '%NODE_TEMP%')"
+if not exist "%NODE_TEMP%" (
+    echo  [ERROR] No se pudo descargar Node.js. Por favor instalalo manualmente:
+    echo  https://nodejs.org/
+    set /a INSTALL_ERRORS+=1
+    exit /b
+)
+echo  [INFO] Ejecutando instalador de Node.js...
+start /wait msiexec.exe /i "%NODE_TEMP%"
+del "%NODE_TEMP%" >nul 2>&1
+echo  [IMPORTANT] CIERRA ESTA VENTANA Y VUELVE A EJECUTAR install.bat
+pause
+exit
