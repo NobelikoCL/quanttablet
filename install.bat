@@ -127,7 +127,37 @@ if not exist node_modules (
 cd ..
 echo.
 
-:: 6. FINALIZACION
+:: 6. CREAR ARCHIVOS .ENV SI NO EXISTEN
+echo [Configuracion] Verificando archivos de entorno (.env)...
+
+if not exist "backend\.env" (
+    echo [INFO] Creando backend\.env con valores por defecto...
+    (
+        echo SECRET_KEY=django-insecure-quant-default-key-change-in-production-!!
+        echo DEBUG=False
+        echo ALLOWED_HOSTS=*
+        echo API_SECRET_KEY=quant-admin-supersecret-token-777
+        echo CORS_ALLOWED_ORIGINS=ALL
+        echo MT5_ACCOUNT=
+        echo MT5_PASSWORD=
+        echo MT5_SERVER=
+    ) > backend\.env
+    echo [OK] backend\.env creado.
+) else (
+    echo [OK] backend\.env ya existe, no se sobreescribio.
+)
+
+if not exist "frontend\.env.local" (
+    echo [INFO] Creando frontend\.env.local...
+    (echo VITE_API_SECRET_KEY=quant-admin-supersecret-token-777) > frontend\.env.local
+    echo [OK] frontend\.env.local creado.
+) else (
+    echo [OK] frontend\.env.local ya existe, no se sobreescribio.
+)
+
+echo.
+
+:: 7. FINALIZACION
 echo =======================================================
 echo          INSTALACION COMPLETADA CON EXITO
 echo =======================================================
@@ -137,5 +167,10 @@ echo.
 echo    --^> start.bat ^<--
 echo.
 echo para encender el servidor y el panel.
+echo.
+echo NOTA: Los archivos backend\.env y frontend\.env.local
+echo contienen la configuracion de seguridad. Puedes editar
+echo backend\.env para cambiar la API_SECRET_KEY o configurar
+echo el login automatico de MT5 (MT5_ACCOUNT / MT5_PASSWORD).
 echo =======================================================
 pause

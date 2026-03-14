@@ -22,17 +22,30 @@ set LOCAL_IP=%LOCAL_IP: =%
 echo [INFO] IP Local detectada: %LOCAL_IP%
 echo.
 
-echo [INFO] Variables de Entorno de Seguridad requeridas (Revisando .env...)
+echo [INFO] Verificando archivos de configuracion (.env)...
 if not exist "backend\.env" (
-    echo [ERROR] No se detecta backend\.env. Creandolo...
-    echo DEBUG=False > backend\.env
-    echo CORS_ALLOW_ALL_ORIGINS=True >> backend\.env
-    echo ALLOWED_HOSTS=* >> backend\.env
-    echo API_SECRET_KEY=quant-admin-supersecret-token-777 >> backend\.env
+    echo [INFO] Creando backend\.env con valores por defecto...
+    (
+        echo SECRET_KEY=django-insecure-quant-default-key-change-in-production-!!
+        echo DEBUG=False
+        echo ALLOWED_HOSTS=*
+        echo API_SECRET_KEY=quant-admin-supersecret-token-777
+        echo CORS_ALLOWED_ORIGINS=ALL
+        echo MT5_ACCOUNT=
+        echo MT5_PASSWORD=
+        echo MT5_SERVER=
+    ) > backend\.env
+    echo [OK] backend\.env creado.
+) else (
+    echo [OK] backend\.env detectado.
 )
 
 if not exist "frontend\.env.local" (
-    cmd /c "echo VITE_API_SECRET_KEY=quant-admin-supersecret-token-777 > frontend\.env.local"
+    echo [INFO] Creando frontend\.env.local...
+    (echo VITE_API_SECRET_KEY=quant-admin-supersecret-token-777) > frontend\.env.local
+    echo [OK] frontend\.env.local creado.
+) else (
+    echo [OK] frontend\.env.local detectado.
 )
 
 echo [1] Verificando entorno Backend Django...
@@ -62,14 +75,33 @@ echo [3] Iniciando Frontend React en 0.0.0.0:5173...
 start "REACT FRONTEND" cmd /c "cd frontend && echo === FRONTEND ACTIVO === && npm run dev"
 
 echo.
+echo [4] Esperando que el backend este listo...
+set /a WAIT_ATTEMPTS=0
+:wait_backend
+set /a WAIT_ATTEMPTS+=1
+if %WAIT_ATTEMPTS% gtr 30 (
+    echo [WARN] El backend tarda mas de lo esperado. Abriendo navegador de todas formas...
+    goto open_browser
+)
+curl -s --max-time 2 http://localhost:8000/api/health/ | findstr /C:"\"status\"" >nul 2>&1
+if errorlevel 1 (
+    timeout /t 2 /nobreak >nul
+    goto wait_backend
+)
+
+:open_browser
+echo [OK] Backend listo. Abriendo navegador...
+start "" "http://localhost:5173"
+
+echo.
 echo =======================================================
-echo TODO INICIADO. Revisa las 2 consolas abiertas.
+echo TODO INICIADO.
 echo.
 echo   Backend (API):   http://%LOCAL_IP%:8000/
 echo   Frontend (UI):   http://%LOCAL_IP%:5173/
 echo.
-echo   LOGS: Revisa la consola de DJANGO BACKEND para ver el
-echo   escaneo de MT5 y las metricas en tiempo real.
+echo   El navegador se abrio automaticamente.
+echo   LOGS: Revisa la consola de DJANGO BACKEND.
 echo =======================================================
 if "%1"=="--no-pause" goto end
 pause

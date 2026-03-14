@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, Plus, Trash2, RefreshCw, ArrowRightLeft, Zap, FolderOpen, Link2, AlertTriangle, Check, X, Server } from 'lucide-react';
+import { Users, Plus, Trash2, RefreshCw, ArrowRightLeft, Zap, FolderOpen, Link2, AlertTriangle, Check, X, Server, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import API_BASE from '../api';
 
@@ -15,6 +15,8 @@ const AccountsTab = () => {
     const [newPath, setNewPath] = useState('');
     const [showMappingForm, setShowMappingForm] = useState(false);
     const [mappingData, setMappingData] = useState({ terminal_a: '', terminal_b: '', symbol_a: '', symbol_b: '' });
+    const [scanning, setScanning] = useState(false);
+    const [scannedTerminals, setScannedTerminals] = useState(null);
 
     // Fetch terminales registradas
     const fetchTerminals = useCallback(async () => {
@@ -46,6 +48,44 @@ const AccountsTab = () => {
         };
         init();
     }, [fetchTerminals]);
+
+    // Escanear MT5 instalados en el PC
+    const handleScan = useCallback(async () => {
+        setScanning(true);
+        setScannedTerminals(null);
+        try {
+            const res = await fetch(`${API_BASE}/api/terminals/scan/`, {
+                headers: { 'X-API-KEY': API_KEY }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setScannedTerminals(data.terminals || []);
+                if (data.terminals?.length === 0) toast('No se encontraron terminales MT5 en este PC', { icon: '🔍' });
+            } else {
+                toast.error('Error al escanear');
+            }
+        } catch { toast.error('Error de conexión'); }
+        setScanning(false);
+    }, []);
+
+    // Agregar terminal detectada con un clic
+    const handleAddScanned = async (broker, path) => {
+        try {
+            const res = await fetch(`${API_BASE}/api/terminals/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-API-KEY': API_KEY },
+                body: JSON.stringify({ name: broker, terminal_path: path })
+            });
+            if (res.ok) {
+                toast.success(`Terminal "${broker}" agregada`);
+                setScannedTerminals(prev => prev.filter(t => t.path !== path));
+                fetchTerminals();
+            } else {
+                const err = await res.json();
+                toast.error(err?.terminal_path?.[0] || 'Error al agregar');
+            }
+        } catch { toast.error('Error de conexión'); }
+    };
 
     // Agregar terminal
     const handleAdd = async () => {
@@ -203,6 +243,11 @@ const AccountsTab = () => {
                         </div>
                     </div>
                     <div className="flex gap-2">
+                        <button onClick={handleScan} disabled={scanning}
+                            className="flex items-center gap-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 px-3 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50">
+                            <Search className={`w-3.5 h-3.5 ${scanning ? 'animate-spin' : ''}`} />
+                            {scanning ? 'Escaneando...' : 'Detectar MT5'}
+                        </button>
                         <button onClick={() => setShowAddForm(!showAddForm)}
                             className="flex items-center gap-1.5 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 px-3 py-2 rounded-lg text-xs font-bold transition-all">
                             <Plus className="w-3.5 h-3.5" /> Agregar
@@ -234,6 +279,48 @@ const AccountsTab = () => {
                                 <Check className="w-3 h-3" /> Guardar
                             </button>
                         </div>
+                    </div>
+                )}
+
+                {/* Resultados del escaneo automático */}
+                {scannedTerminals !== null && (
+                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 mb-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-bold text-emerald-400">
+                                <Search className="w-3.5 h-3.5 inline mr-1.5" />
+                                {scannedTerminals.length > 0
+                                    ? `${scannedTerminals.length} terminal(es) MT5 detectada(s) en este PC`
+                                    : 'No se encontraron terminales MT5 en este PC'}
+                            </p>
+                            <button onClick={() => setScannedTerminals(null)} className="text-slate-500 hover:text-white">
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                        {scannedTerminals.length > 0 && (
+                            <div className="space-y-2">
+                                {scannedTerminals.map(t => {
+                                    const alreadyAdded = terminals.some(rt => rt.terminal_path === t.path);
+                                    return (
+                                        <div key={t.path} className="flex items-center justify-between bg-black/20 border border-slate-700 rounded-lg px-3 py-2">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs font-bold text-white truncate">{t.broker}</p>
+                                                <p className="text-[10px] text-slate-500 font-mono truncate">{t.path}</p>
+                                            </div>
+                                            {alreadyAdded ? (
+                                                <span className="text-[9px] bg-slate-700 text-slate-400 px-2 py-1 rounded-lg font-bold flex-shrink-0 ml-2">
+                                                    <Check className="w-3 h-3 inline mr-0.5" /> Ya agregada
+                                                </span>
+                                            ) : (
+                                                <button onClick={() => handleAddScanned(t.broker, t.path)}
+                                                    className="flex items-center gap-1 text-[10px] bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 px-2.5 py-1.5 rounded-lg font-bold transition-all flex-shrink-0 ml-2">
+                                                    <Plus className="w-3 h-3" /> Agregar
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 )}
 

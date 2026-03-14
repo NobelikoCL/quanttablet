@@ -7,7 +7,7 @@ from .views import (
     CloseWinningPositionsBySymbolView, SessionAssetsView,
     MT5TerminalListView, MT5TerminalDetailView, TerminalPositionsView,
     CopyTradeView, SymbolMappingView, TerminalSymbolsView,
-    EconomicCalendarView, MacroNewsView, HealthView
+    EconomicCalendarView, MacroNewsView, HealthView, MT5ScanView
 )
 
 urlpatterns = [
@@ -35,6 +35,7 @@ urlpatterns = [
     path('api/session-assets/', SessionAssetsView.as_view(), name='session_assets'),
 
     # Multi-Terminal
+    path('api/terminals/scan/', MT5ScanView.as_view(), name='terminal_scan'),
     path('api/terminals/', MT5TerminalListView.as_view(), name='terminal_list'),
     path('api/terminals/<int:terminal_id>/', MT5TerminalDetailView.as_view(), name='terminal_detail'),
     path('api/terminals/positions/', TerminalPositionsView.as_view(), name='terminal_positions'),

@@ -1,6 +1,8 @@
 import logging
 import csv
 import io
+import glob
+import os
 import requests as http_requests
 import MetaTrader5 as mt5
 from rest_framework.views import APIView
@@ -686,6 +688,59 @@ class EconomicCalendarView(APIView):
             return float(value)
         except (ValueError, TypeError):
             return None
+
+# --- MT5 TERMINAL SCAN ---
+
+class MT5ScanView(APIView):
+    """Escanea el PC buscando instalaciones de MetaTrader 5 (terminal64.exe)."""
+
+    def get(self, request):
+        found = []
+        seen = set()
+
+        # Rutas de Program Files (profundidad 1 y 2)
+        pf_roots = [
+            os.environ.get('PROGRAMFILES', r'C:\Program Files'),
+            os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'),
+            r'C:\MT5', r'C:\MT4',
+        ]
+        for root in pf_roots:
+            if not root or not os.path.isdir(root):
+                continue
+            for pattern in [
+                os.path.join(root, '*', 'terminal64.exe'),
+                os.path.join(root, '*', '*', 'terminal64.exe'),
+            ]:
+                for exe_path in glob.glob(pattern):
+                    if exe_path in seen:
+                        continue
+                    seen.add(exe_path)
+                    broker = os.path.basename(os.path.dirname(exe_path))
+                    found.append({'path': exe_path, 'broker': broker})
+
+        # Rutas de AppData (MetaQuotes data folders)
+        appdata = os.environ.get('APPDATA', '')
+        mq_root = os.path.join(appdata, 'MetaQuotes', 'Terminal')
+        if os.path.isdir(mq_root):
+            for hash_folder in os.listdir(mq_root):
+                hash_path = os.path.join(mq_root, hash_folder)
+                origin_file = os.path.join(hash_path, 'origin.txt')
+                if not os.path.isfile(origin_file):
+                    continue
+                try:
+                    with open(origin_file, encoding='utf-8', errors='ignore') as f:
+                        install_path = f.read().strip()
+                    exe_path = os.path.join(install_path, 'terminal64.exe') if not install_path.lower().endswith('.exe') else install_path
+                    if os.path.isfile(exe_path) and exe_path not in seen:
+                        seen.add(exe_path)
+                        broker = os.path.basename(os.path.dirname(exe_path))
+                        found.append({'path': exe_path, 'broker': broker})
+                except Exception:
+                    pass
+
+        logger.info(f"[MT5 Scan] {len(found)} terminal(es) encontrada(s) en el PC")
+        return Response({'terminals': found})
+
 
 # --- HEALTH CHECK ---
 
