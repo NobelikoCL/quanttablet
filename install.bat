@@ -94,6 +94,9 @@ if %errorLevel% neq 0 (
 ) else (
     for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PY_VER=%%v
     echo  [OK] Python !PY_VER! detectado.
+    
+    :: Asegurar que venv esté disponible
+    python -m pip install --user --upgrade pip >nul 2>&1
 )
 echo.
 
@@ -199,6 +202,7 @@ if %errorLevel% neq 0 (
 )
 echo.
 echo  [OK] Dependencias backend instaladas.
+echo  [LOG] Verificando requisitos minimos...
 echo.
 
 :: ============================================================

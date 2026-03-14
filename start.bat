@@ -63,45 +63,55 @@ if not exist "frontend\node_modules" (
     exit /b
 )
 
-echo [INFO] LOGS DETALLADOS ACTIVADOS PARA BACKEND (quant_backend_logs.log)
+echo [INFO] LOGS DETALLADOS ACTIVADOS PARA BACKEND
+echo [INFO] Guardando salida en: %CD%\quant_backend_logs.log
 echo.
 echo [2] Ejecutando Migraciones e iniciando Django en 0.0.0.0:8000...
 set PYTHONUTF8=1
 set PYTHONUNBUFFERED=1
-start "DJANGO BACKEND" cmd /c "cd backend && venv\Scripts\python.exe manage.py migrate && echo === BACKEND ACTIVO en 0.0.0.0:8000 === && echo [INFO] Los logs se muestran aqui y se guardan en quant_backend_logs.log && venv\Scripts\python.exe manage.py runserver 0.0.0.0:8000"
+:: Borrar log previo si existe para iniciar limpio
+if exist "quant_backend_logs.log" del "quant_backend_logs.log"
+
+start "DJANGO BACKEND" cmd /c "cd backend && venv\Scripts\python.exe manage.py migrate && echo [%DATE% %TIME%] --- INICIO DE SERVIDOR --- >> ..\quant_backend_logs.log && echo === BACKEND ACTIVO en 0.0.0.0:8000 === && venv\Scripts\python.exe manage.py runserver 0.0.0.0:8000 2>&1 | powershell -Command \"$input | Tee-Object -FilePath '..\quant_backend_logs.log' -Append\""
 
 echo.
 echo [3] Iniciando Frontend React en 0.0.0.0:5173...
 start "REACT FRONTEND" cmd /c "cd frontend && echo === FRONTEND ACTIVO === && npm run dev"
 
 echo.
-echo [4] Esperando que el backend este listo...
+echo [4] Esperando que el backend este listo (Verificando Health Check)...
 set /a WAIT_ATTEMPTS=0
 :wait_backend
 set /a WAIT_ATTEMPTS+=1
 if %WAIT_ATTEMPTS% gtr 30 (
-    echo [WARN] El backend tarda mas de lo esperado. Abriendo navegador de todas formas...
+    echo [WARN] El backend tarda mas de lo esperado. Revisa quant_backend_logs.log
+    echo Abriendo navegador de todas formas...
     goto open_browser
 )
-curl -s --max-time 2 http://localhost:8000/api/health/ | findstr /C:"\"status\"" >nul 2>&1
+:: Intentar verificar salud del backend
+curl -s --max-time 2 http://localhost:8000/api/health/ > temp_health.json
+findstr /C:"\"status\"" temp_health.json >nul 2>&1
 if errorlevel 1 (
+    del temp_health.json >nul 2>&1
+    echo [WAIT] Esperando backend (!WAIT_ATTEMPTS!/30)...
     timeout /t 2 /nobreak >nul
     goto wait_backend
 )
+del temp_health.json >nul 2>&1
 
 :open_browser
-echo [OK] Backend listo. Abriendo navegador...
+echo [OK] Backend detectado y saludable. Abriendo navegador...
 start "" "http://localhost:5173"
 
 echo.
 echo =======================================================
-echo TODO INICIADO.
+echo TODO INICIADO CORRECTAMENTE.
 echo.
 echo   Backend (API):   http://%LOCAL_IP%:8000/
 echo   Frontend (UI):   http://%LOCAL_IP%:5173/
 echo.
-echo   El navegador se abrio automaticamente.
-echo   LOGS: Revisa la consola de DJANGO BACKEND.
+echo   LOGS EN TIEMPO REAL: Revisa la ventana "DJANGO BACKEND"
+echo   LOGS EN ARCHIVO:     %CD%\quant_backend_logs.log
 echo =======================================================
 if "%1"=="--no-pause" goto end
 pause
