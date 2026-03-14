@@ -42,7 +42,7 @@ echo [Sistema] Verificando entorno...
 if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
     echo  [OK] Arquitectura 64-bit detectada.
 ) else if "%PROCESSOR_ARCHITEW6432%"=="AMD64" (
-    echo  [OK] Arquitectura 64-bit (WOW64) detectada.
+    echo  [OK] Arquitectura 64-bit ^(WOW64^) detectada.
 ) else (
     echo  [WARN] Arquitectura no reconocida: %PROCESSOR_ARCHITECTURE%
 )
