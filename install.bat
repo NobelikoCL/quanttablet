@@ -224,7 +224,25 @@ exit /b
 :: ============================================================
 
 :INSTALL_PYTHON
-echo  [INFO] Iniciando descarga de Python 3.13.1...
+echo  [INFO] Buscando instalador local en carpeta install...
+set "PY_LOCAL="
+if exist "install\python*.exe" for %%f in (install\python*.exe) do set "PY_LOCAL=%%f"
+if exist "install\python*.msi" for %%f in (install\python*.msi) do set "PY_LOCAL=%%f"
+
+if defined PY_LOCAL (
+    echo  [OK] Instalador local encontrado: !PY_LOCAL!
+    echo  [INFO] Ejecutando instalador... (Sigue los pasos en pantalla)
+    if "!PY_LOCAL:~-3!"=="msi" (
+        start /wait msiexec.exe /i "!PY_LOCAL!"
+    ) else (
+        start /wait "" "!PY_LOCAL!"
+    )
+    echo  [IMPORTANT] CIERRA ESTA VENTANA Y VUELVE A EJECUTAR install.bat
+    pause
+    exit
+)
+
+echo  [INFO] No se encontro instalador local. Iniciando descarga de Python 3.13.1...
 set "PY_DL_URL=https://www.python.org/ftp/python/3.13.1/python-3.13.1-amd64.exe"
 set "PY_TEMP=%TEMP%\py_inst_quant.exe"
 powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object System.Net.WebClient).DownloadFile('%PY_DL_URL%', '%PY_TEMP%')"
