@@ -72,11 +72,13 @@ set PYTHONUNBUFFERED=1
 :: Borrar log previo si existe para iniciar limpio
 if exist "quant_backend_logs.log" del "quant_backend_logs.log"
 
-start "DJANGO BACKEND" cmd /c "cd backend && venv\Scripts\python.exe manage.py migrate && echo [%DATE% %TIME%] --- INICIO DE SERVIDOR --- >> ..\quant_backend_logs.log && echo === BACKEND ACTIVO en 0.0.0.0:8000 === && venv\Scripts\python.exe manage.py runserver 0.0.0.0:8000 2>&1 | powershell -Command \"$input | Tee-Object -FilePath '..\quant_backend_logs.log' -Append\""
+:: Iniciar Backend con cmd /k para que la ventana NO se cierre si falla
+start "DJANGO BACKEND" cmd /k "cd backend && venv\Scripts\python.exe manage.py migrate && echo [%DATE% %TIME%] --- INICIO DE SERVIDOR --- >> ..\quant_backend_logs.log && echo === BACKEND ACTIVO en 0.0.0.0:8000 === && venv\Scripts\python.exe manage.py runserver 0.0.0.0:8000 2>&1 | powershell -Command \"$input | Tee-Object -FilePath '..\quant_backend_logs.log' -Append\""
 
 echo.
 echo [3] Iniciando Frontend React en 0.0.0.0:5173...
-start "REACT FRONTEND" cmd /c "cd frontend && echo === FRONTEND ACTIVO === && npm run dev"
+:: Iniciar Frontend con cmd /k para persistencia
+start "REACT FRONTEND" cmd /k "cd frontend && echo === FRONTEND ACTIVO === && npm run dev"
 
 echo.
 echo [4] Esperando que el backend este listo (Verificando Health Check)...
@@ -84,7 +86,9 @@ set /a WAIT_ATTEMPTS=0
 :wait_backend
 set /a WAIT_ATTEMPTS+=1
 if %WAIT_ATTEMPTS% gtr 30 (
-    echo [WARN] El backend tarda mas de lo esperado. Revisa quant_backend_logs.log
+    echo [WARN] El backend tarda mas de lo esperado. Revisa la ventana "DJANGO BACKEND"
+    echo [INFO] Tambien puedes revisar el archivo: %CD%\quant_backend_logs.log
+    echo.
     echo Abriendo navegador de todas formas...
     goto open_browser
 )
