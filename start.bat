@@ -1,6 +1,5 @@
 @echo off
 setlocal enabledelayedexpansion
-title Quant MT5 Dashboard - SECURED Launcher
 title Quant MT5 Dashboard - Launcher
 color 0A
 
@@ -27,7 +26,7 @@ echo [INFO] Verificando archivos de configuracion (.env)...
 if not exist "backend\.env" (
     echo [INFO] Creando backend\.env con valores por defecto...
     (
-        echo SECRET_KEY=django-insecure-quant-default-key-change-in-production-!!
+        echo SECRET_KEY=django-insecure-quant-default-key-constant-val-123
         echo DEBUG=False
         echo ALLOWED_HOSTS=*
         echo API_SECRET_KEY=quant-admin-supersecret-token-777
